@@ -1,0 +1,1403 @@
+version: "1.0"
+
+semantic_model:
+  - name: telecom_customer_experience
+    description: >-
+      Semantic model for telecom customer experience analytics covering subscriber management,
+      billing plans, call detail records, network device sessions, and cell tower infrastructure.
+      This model enables analysis of subscriber behavior, network usage, billing patterns,
+      call activity, and infrastructure performance across the telecom operating environment.
+    
+    ai_context:
+      instructions: >-
+        ## Dataset Grain
+        
+        - **subscriber**: One row per subscriber. Each subscriber has a unique subscriber_id and msisdn.
+        
+        - **billing_plan**: One row per billing plan. Each plan has a unique plan_id and plan_code.
+        
+        - **call_detail_record**: One row per call event. Each call has a unique cdr_id. Multiple calls can be made by the same subscriber.
+        
+        - **network_device_session**: One row per network session. Each session has a unique session_id. Multiple sessions can be initiated by the same subscriber.
+        
+        - **cell_tower**: One row per cell tower. Each tower has a unique tower_id and tower_code.
+        
+        
+        ## Metric Selection
+        
+        - For subscriber-level revenue analysis, use aggregated charge_amount from call_detail_record grouped by subscriber_id.
+        
+        - For call-level analysis, use call_detail_record metrics such as duration_sec and charge_amount at the cdr_id grain.
+        
+        - For network usage analysis, use data_used_mb from network_device_session at the session_id grain.
+        
+        - For billing plan analysis, use monthly_fee, rate_per_min, rate_per_sms from billing_plan at the plan_id grain.
+        
+        - For tower performance analysis, use aggregated call and session counts grouped by tower_id.
+        
+        
+        ## Join Guidance
+        
+        - **subscriber to billing_plan**: Join subscriber.plan_id = billing_plan.plan_id (many-to-one). Multiple subscribers can share the same billing plan.
+        
+        - **call_detail_record to subscriber**: Join call_detail_record.subscriber_id = subscriber.subscriber_id (many-to-one). Each call belongs to one subscriber.
+        
+        - **call_detail_record to cell_tower**: Join call_detail_record.tower_id = cell_tower.tower_id (many-to-one). Each call is routed through one tower.
+        
+        - **network_device_session to subscriber**: Join network_device_session.subscriber_id = subscriber.subscriber_id (many-to-one). Each session belongs to one subscriber.
+        
+        - **network_device_session to cell_tower**: Join network_device_session.tower_id = cell_tower.tower_id (many-to-one). Each session is handled by one tower.
+        
+        
+        ## Double Counting Prevention
+        
+        - **CRITICAL**: Do not sum subscriber.plan_id or billing_plan.monthly_fee after joining subscriber to call_detail_record or network_device_session without proper aggregation. The subscriber table is at subscriber grain, while call_detail_record and network_device_session are at event grain.
+        
+        - When calculating total revenue from calls, use SUM(call_detail_record.charge_amount) directly. Do not join to subscriber first unless you need subscriber attributes for grouping.
+        
+        - When calculating subscriber-level metrics, aggregate call_detail_record or network_device_session first, then join to subscriber.
+        
+        - When analyzing billing plan revenue, use billing_plan.monthly_fee multiplied by the count of active subscribers on that plan. Do not sum monthly_fee after joining to call or session records.
+        
+        
+        ## Time Analysis
+        
+        - For call analysis over time, use call_detail_record.start_time or call_detail_record.end_time.
+        
+        - For network session analysis over time, use network_device_session.session_start or network_device_session.session_end.
+        
+        - For subscriber lifecycle analysis, use subscriber.activation_date or subscriber.deactivation_date.
+        
+        - For billing plan validity analysis, use billing_plan.effective_from and billing_plan.effective_to.
+        
+        - For tower installation and maintenance analysis, use cell_tower.installed_date or cell_tower.last_maintenance_date.
+        
+        
+        ## SCD Type-2 Relationships
+        
+        - **billing_plan to subscriber (temporal)**: The billing_plan table contains effective_from and effective_to dates indicating plan validity periods. When analyzing historical subscriber billing, join subscriber to billing_plan using:
+          - subscriber.plan_id = billing_plan.plan_id
+          - AND a reference date (e.g., call_detail_record.start_time::date) >= billing_plan.effective_from
+          - AND reference date < COALESCE(billing_plan.effective_to, '9999-12-31'::date)
+        
+        - This ensures that the correct billing plan version is used for historical analysis based on the transaction date.
+        
+        
+        ## Query Restrictions
+        
+        - PII fields (msisdn, imsi, imei, full_name, email, date_of_birth, gender, called_party_msisdn, device_imei) are redacted in the glossary. Queries should aggregate or anonymize these fields appropriately.
+        
+        - The call_detail_record and network_device_session tables can grow very large. Always apply date filters when querying these tables to avoid performance issues.
+        
+        - Roaming calls (roaming_flag = true) may have different charging rules. Consider filtering or grouping by roaming_flag when analyzing call revenue.
+        
+        - Inactive billing plans (is_active = false) should typically be excluded from current billing analysis but may be needed for historical analysis.
+        
+        - Cell towers with status != 'ONLINE' should be considered when analyzing network outages or maintenance impacts.
+    
+    datasets:
+      - name: subscriber
+        business_name: Subscriber
+        description: >-
+          Contains subscriber master data for telecom customers. Each row represents one unique subscriber
+          with their personal information, assigned billing plan, service status, and lifecycle dates.
+          This is the primary customer dimension for subscriber-level analysis.
+        source: telecom_brz.subscriber
+        primary_key:
+          - subscriber_id
+        fields:
+          - name: subscriber_id
+            business_name: Subscriber Identifier
+            description: Unique identifier for the telecom subscriber.
+            sql_type: serial
+            constraints:
+              - PK
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: msisdn
+            business_name: MSISDN
+            description: Mobile station ISDN number assigned to the subscriber.
+            sql_type: varchar(15)
+            constraints:
+              - NOT NULL
+              - UNIQUE
+          
+          - name: imsi
+            business_name: IMSI
+            description: International Mobile Subscriber Identity associated with the subscriber's SIM.
+            sql_type: varchar(20)
+          
+          - name: imei
+            business_name: IMEI
+            description: International Mobile Equipment Identity number of the subscriber's primary device.
+            sql_type: varchar(20)
+          
+          - name: full_name
+            business_name: Full Name
+            description: Full name of the subscriber.
+            sql_type: varchar(100)
+            constraints:
+              - NOT NULL
+          
+          - name: email
+            business_name: Email
+            description: Email address of the subscriber.
+            sql_type: varchar(100)
+          
+          - name: date_of_birth
+            business_name: Date Of Birth
+            description: Date of birth of the subscriber.
+            sql_type: date
+          
+          - name: gender
+            business_name: Gender
+            description: Gender of the subscriber as recorded in customer records.
+            sql_type: varchar(10)
+            dimension:
+              is_categorical: true
+          
+          - name: plan_id
+            business_name: Plan Reference
+            description: References the billing plan assigned to the subscriber.
+            sql_type: int4
+            constraints:
+              - FK
+          
+          - name: status
+            business_name: Status
+            description: Indicates the current lifecycle status of the subscriber account.
+            sql_type: varchar(20)
+            constraints:
+              - DEFAULT
+            dimension:
+              is_categorical: true
+          
+          - name: kyc_verified
+            business_name: KYC Verified
+            description: Indicates whether the subscriber's KYC verification is completed.
+            sql_type: bool
+            constraints:
+              - DEFAULT
+            dimension:
+              is_categorical: true
+          
+          - name: activation_date
+            business_name: Activation Date
+            description: Date when the subscriber's service was activated.
+            sql_type: date
+            dimension:
+              is_time: true
+          
+          - name: deactivation_date
+            business_name: Deactivation Date
+            description: Date when the subscriber's service was deactivated, if applicable.
+            sql_type: date
+            dimension:
+              is_time: true
+          
+          - name: region
+            business_name: Region
+            description: Geographic region associated with the subscriber.
+            sql_type: varchar(50)
+            dimension:
+              is_categorical: true
+          
+          - name: circle
+            business_name: Circle
+            description: Telecom operating circle associated with the subscriber.
+            sql_type: varchar(50)
+            dimension:
+              is_categorical: true
+          
+          - name: source_system
+            business_name: Source System
+            description: Source system from which the subscriber record originated.
+            sql_type: varchar(30)
+            constraints:
+              - DEFAULT
+          
+          - name: batch_id
+            business_name: Batch Identifier
+            description: Identifier of the batch load that created or updated the subscriber record.
+            sql_type: varchar(30)
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp recording when the subscriber record was created.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+          
+          - name: updated_at
+            business_name: Updated At
+            description: Timestamp recording when the subscriber record was last updated.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+      
+      - name: billing_plan
+        business_name: Billing Plan
+        description: >-
+          Contains billing plan master data defining the pricing structure, usage limits, and validity periods
+          for telecom service plans. Each row represents one unique billing plan with its rates, data limits,
+          and effective date range. This is the primary dimension for billing and plan analysis.
+        source: telecom_brz.billing_plan
+        primary_key:
+          - plan_id
+        fields:
+          - name: plan_id
+            business_name: Plan Identifier
+            description: Unique identifier for the billing plan.
+            sql_type: serial
+            constraints:
+              - PK
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: plan_code
+            business_name: Plan Code
+            description: Business code used to uniquely identify the billing plan.
+            sql_type: varchar(20)
+            constraints:
+              - NOT NULL
+              - UNIQUE
+          
+          - name: plan_name
+            business_name: Plan Name
+            description: Descriptive name of the billing plan.
+            sql_type: varchar(50)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_categorical: true
+          
+          - name: plan_type
+            business_name: Plan Type
+            description: Indicates the category or type of the billing plan.
+            sql_type: varchar(20)
+            dimension:
+              is_categorical: true
+          
+          - name: rate_per_min
+            business_name: Rate Per Min
+            description: Monetary rate charged per minute of voice usage under the plan.
+            sql_type: numeric(6,3)
+          
+          - name: rate_per_sms
+            business_name: Rate Per Sms
+            description: Monetary rate charged per SMS message under the plan.
+            sql_type: numeric(6,3)
+          
+          - name: data_limit_gb
+            business_name: Data Limit GB
+            description: Total data usage allowance in gigabytes included in the plan.
+            sql_type: numeric(6,2)
+          
+          - name: validity_days
+            business_name: Validity Days
+            description: Number of days for which the plan remains valid.
+            sql_type: int4
+          
+          - name: monthly_fee
+            business_name: Monthly Fee
+            description: Fixed recurring monthly fee charged for the plan.
+            sql_type: numeric(8,2)
+          
+          - name: currency
+            business_name: Currency
+            description: Currency code in which the plan charges are denominated.
+            sql_type: varchar(5)
+            constraints:
+              - DEFAULT
+            dimension:
+              is_categorical: true
+          
+          - name: is_active
+            business_name: Is Active
+            description: Indicates whether the billing plan is currently active.
+            sql_type: bool
+            constraints:
+              - DEFAULT
+            dimension:
+              is_categorical: true
+          
+          - name: effective_from
+            business_name: Effective From
+            description: Date from which the billing plan becomes effective.
+            sql_type: date
+            dimension:
+              is_time: true
+          
+          - name: effective_to
+            business_name: Effective To
+            description: Date until which the billing plan remains effective.
+            sql_type: date
+            dimension:
+              is_time: true
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp recording when the billing plan record was created.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+      
+      - name: call_detail_record
+        business_name: Call Detail Record
+        description: >-
+          Contains call detail records (CDR) capturing individual call events for subscribers. Each row represents
+          one call transaction with call type, direction, duration, status, and charge information. This is the
+          primary fact table for call-level analysis and revenue calculation from voice services.
+        source: telecom_brz.call_detail_record
+        primary_key:
+          - cdr_id
+        fields:
+          - name: cdr_id
+            business_name: CDR Identifier
+            description: Unique identifier for the call detail record.
+            sql_type: bigserial
+            constraints:
+              - PK
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: subscriber_id
+            business_name: Subscriber Reference
+            description: References the related subscriber record for the call.
+            sql_type: int4
+            constraints:
+              - FK
+          
+          - name: tower_id
+            business_name: Tower Reference
+            description: References the related cell tower where the call was routed.
+            sql_type: int4
+            constraints:
+              - FK
+          
+          - name: called_party_msisdn
+            business_name: Called Party MSISDN
+            description: Mobile station ISDN number of the called party.
+            sql_type: varchar(15)
+          
+          - name: call_type
+            business_name: Call Type
+            description: Indicates the type of call, such as voice, VoIP, or emergency.
+            sql_type: varchar(20)
+            dimension:
+              is_categorical: true
+          
+          - name: call_direction
+            business_name: Call Direction
+            description: Indicates whether the call was incoming, outgoing, or internal.
+            sql_type: varchar(15)
+            dimension:
+              is_categorical: true
+          
+          - name: roaming_flag
+            business_name: Roaming Flag
+            description: Indicates whether the call occurred while the subscriber was roaming.
+            sql_type: bool
+            constraints:
+              - DEFAULT
+            dimension:
+              is_categorical: true
+          
+          - name: start_time
+            business_name: Start Time
+            description: Timestamp recording when the call started.
+            sql_type: timestamp(6)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: end_time
+            business_name: End Time
+            description: Timestamp recording when the call ended.
+            sql_type: timestamp(6)
+            dimension:
+              is_time: true
+          
+          - name: duration_sec
+            business_name: Duration Sec
+            description: Total duration of the call measured in seconds.
+            sql_type: int4
+          
+          - name: call_status
+            business_name: Call Status
+            description: Indicates the completion status of the call, such as connected or failed.
+            sql_type: varchar(20)
+            dimension:
+              is_categorical: true
+          
+          - name: charge_amount
+            business_name: Charge Amount
+            description: Monetary amount charged for the call.
+            sql_type: numeric(8,2)
+          
+          - name: source_system
+            business_name: Source System
+            description: System from which the call detail record was sourced.
+            sql_type: varchar(30)
+            constraints:
+              - DEFAULT
+          
+          - name: ingested_at
+            business_name: Ingested At
+            description: Timestamp recording when the call detail record was ingested into the system.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+      
+      - name: network_device_session
+        business_name: Network Device Session
+        description: >-
+          Contains network device session records capturing data usage events for subscribers. Each row represents
+          one network session with session timing, data consumption, network type, and signal strength information.
+          This is the primary fact table for data usage analysis and network performance monitoring.
+        source: telecom_brz.network_device_session
+        primary_key:
+          - session_id
+        fields:
+          - name: session_id
+            business_name: Session Identifier
+            description: Unique identifier for the network device session.
+            sql_type: bigserial
+            constraints:
+              - PK
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: subscriber_id
+            business_name: Subscriber Reference
+            description: References the related subscriber record for the session.
+            sql_type: int4
+            constraints:
+              - FK
+          
+          - name: tower_id
+            business_name: Tower Reference
+            description: References the cell tower handling the network session.
+            sql_type: int4
+            constraints:
+              - FK
+          
+          - name: device_imei
+            business_name: Device IMEI
+            description: International Mobile Equipment Identity number of the subscriber's device.
+            sql_type: varchar(20)
+          
+          - name: network_type
+            business_name: Network Type
+            description: Type of network used during the session, such as 3G, 4G, or 5G.
+            sql_type: varchar(10)
+            dimension:
+              is_categorical: true
+          
+          - name: session_start
+            business_name: Session Start
+            description: Timestamp recording when the network session started.
+            sql_type: timestamp(6)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: session_end
+            business_name: Session End
+            description: Timestamp recording when the network session ended.
+            sql_type: timestamp(6)
+            dimension:
+              is_time: true
+          
+          - name: session_status
+            business_name: Session Status
+            description: Indicates the current or final status of the network session.
+            sql_type: varchar(20)
+            dimension:
+              is_categorical: true
+          
+          - name: data_used_mb
+            business_name: Data Used MB
+            description: Total data volume in megabytes consumed during the session.
+            sql_type: numeric(10,2)
+          
+          - name: signal_strength_dbm
+            business_name: Signal Strength dBm
+            description: Measured signal strength in dBm during the session.
+            sql_type: int4
+          
+          - name: ingested_at
+            business_name: Ingested At
+            description: Timestamp recording when the network session record was ingested into the system.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+      
+      - name: cell_tower
+        business_name: Cell Tower
+        description: >-
+          Contains cell tower infrastructure master data including location, technology, and operational status.
+          Each row represents one unique cell tower with its geographic coordinates, network technology support,
+          and maintenance history. This is the primary dimension for network infrastructure and geographic analysis.
+        source: telecom_brz.cell_tower
+        primary_key:
+          - tower_id
+        fields:
+          - name: tower_id
+            business_name: Tower Identifier
+            description: Unique identifier for the cell tower.
+            sql_type: serial
+            constraints:
+              - PK
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: tower_code
+            business_name: Tower Code
+            description: Business code used to uniquely identify the cell tower.
+            sql_type: varchar(20)
+            constraints:
+              - NOT NULL
+              - UNIQUE
+          
+          - name: tower_name
+            business_name: Tower Name
+            description: Descriptive name of the cell tower site.
+            sql_type: varchar(100)
+            dimension:
+              is_categorical: true
+          
+          - name: region
+            business_name: Region
+            description: Geographic region in which the cell tower is located.
+            sql_type: varchar(50)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_categorical: true
+          
+          - name: circle
+            business_name: Circle
+            description: Telecom operating circle associated with the cell tower.
+            sql_type: varchar(50)
+            dimension:
+              is_categorical: true
+          
+          - name: latitude
+            business_name: Latitude
+            description: Latitude coordinate of the cell tower location.
+            sql_type: numeric(9,6)
+          
+          - name: longitude
+            business_name: Longitude
+            description: Longitude coordinate of the cell tower location.
+            sql_type: numeric(9,6)
+          
+          - name: technology
+            business_name: Technology
+            description: Network technology supported by the cell tower, such as 3G, 4G, or 5G.
+            sql_type: varchar(10)
+            dimension:
+              is_categorical: true
+          
+          - name: tower_type
+            business_name: Tower Type
+            description: Type or classification of the cell tower, such as macro or micro.
+            sql_type: varchar(20)
+            dimension:
+              is_categorical: true
+          
+          - name: status
+            business_name: Status
+            description: Indicates the current operational status of the cell tower.
+            sql_type: varchar(20)
+            constraints:
+              - DEFAULT
+            dimension:
+              is_categorical: true
+          
+          - name: installed_date
+            business_name: Installed Date
+            description: Date when the cell tower was installed.
+            sql_type: date
+            dimension:
+              is_time: true
+          
+          - name: last_maintenance_date
+            business_name: Last Maintenance Date
+            description: Date of the most recent maintenance performed on the cell tower.
+            sql_type: date
+            dimension:
+              is_time: true
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp recording when the cell tower record was created.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+          
+          - name: updated_at
+            business_name: Updated At
+            description: Timestamp recording when the cell tower record was last updated.
+            sql_type: timestamp(6)
+            constraints:
+              - DEFAULT
+    
+    relationships:
+      - name: subscriber_to_billing_plan
+        left_dataset: subscriber
+        right_dataset: billing_plan
+        relationship_type: many_to_one
+        join:
+          left:
+            - plan_id
+          right:
+            - plan_id
+        join_type: many_to_one
+        resolution: >-
+          Multiple subscribers can be assigned to the same billing plan. Join subscriber.plan_id to
+          billing_plan.plan_id to retrieve plan details, rates, and limits for each subscriber.
+      
+      - name: subscriber_to_billing_plan_temporal
+        left_dataset: subscriber
+        right_dataset: billing_plan
+        relationship_type: many_to_one
+        join:
+          left:
+            - plan_id
+          right:
+            - plan_id
+            - effective_from
+            - effective_to
+        join_type: scd_type2_date_range
+        resolution: >-
+          This is an SCD Type-2 temporal relationship. When analyzing historical subscriber billing
+          with a reference date (e.g., from call_detail_record.start_time or network_device_session.session_start),
+          join using: subscriber.plan_id = billing_plan.plan_id AND reference_date >= billing_plan.effective_from
+          AND reference_date < COALESCE(billing_plan.effective_to, '9999-12-31'::date).
+          This ensures the correct billing plan version is used based on the effective date range.
+      
+      - name: call_detail_record_to_subscriber
+        left_dataset: call_detail_record
+        right_dataset: subscriber
+        relationship_type: many_to_one
+        join:
+          left:
+            - subscriber_id
+          right:
+            - subscriber_id
+        join_type: many_to_one
+        resolution: >-
+          Each call detail record belongs to one subscriber. Join call_detail_record.subscriber_id to
+          subscriber.subscriber_id to retrieve subscriber attributes for call analysis.
+      
+      - name: call_detail_record_to_cell_tower
+        left_dataset: call_detail_record
+        right_dataset: cell_tower
+        relationship_type: many_to_one
+        join:
+          left:
+            - tower_id
+          right:
+            - tower_id
+        join_type: many_to_one
+        resolution: >-
+          Each call is routed through one cell tower. Join call_detail_record.tower_id to cell_tower.tower_id
+          to retrieve tower location, technology, and status for network analysis.
+      
+      - name: network_device_session_to_subscriber
+        left_dataset: network_device_session
+        right_dataset: subscriber
+        relationship_type: many_to_one
+        join:
+          left:
+            - subscriber_id
+          right:
+            - subscriber_id
+        join_type: many_to_one
+        resolution: >-
+          Each network device session belongs to one subscriber. Join network_device_session.subscriber_id to
+          subscriber.subscriber_id to retrieve subscriber attributes for data usage analysis.
+      
+      - name: network_device_session_to_cell_tower
+        left_dataset: network_device_session
+        right_dataset: cell_tower
+        relationship_type: many_to_one
+        join:
+          left:
+            - tower_id
+          right:
+            - tower_id
+        join_type: many_to_one
+        resolution: >-
+          Each network session is handled by one cell tower. Join network_device_session.tower_id to
+          cell_tower.tower_id to retrieve tower location, technology, and status for network performance analysis.
+    
+    metrics:
+      - name: total_call_revenue
+        business_name: Total Call Revenue
+        description: >-
+          Total revenue generated from all call transactions. Calculated as the sum of charge_amount
+          from all call detail records.
+        return_type: currency
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(cdr.charge_amount) AS total_call_revenue
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.charge_amount
+      
+      - name: total_call_count
+        business_name: Total Call Count
+        description: >-
+          Total number of call transactions recorded in the system.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(cdr.cdr_id) AS total_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.cdr_id
+      
+      - name: total_call_duration_minutes
+        business_name: Total Call Duration Minutes
+        description: >-
+          Total call duration across all calls measured in minutes. Calculated by summing duration_sec
+          and converting to minutes.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(cdr.duration_sec) / 60.0 AS total_call_duration_minutes
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.duration_sec
+      
+      - name: average_call_duration_minutes
+        business_name: Average Call Duration Minutes
+        description: >-
+          Average duration per call measured in minutes. Calculated as the mean of duration_sec
+          converted to minutes.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(cdr.duration_sec) / 60.0 AS average_call_duration_minutes
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.duration_sec
+      
+      - name: average_call_charge
+        business_name: Average Call Charge
+        description: >-
+          Average charge amount per call transaction.
+        return_type: currency
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(cdr.charge_amount) AS average_call_charge
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.charge_amount
+      
+      - name: completed_call_count
+        business_name: Completed Call Count
+        description: >-
+          Number of calls that completed successfully with status 'Completed'.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(cdr.cdr_id) AS completed_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+                WHERE cdr.call_status = 'Completed'
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.call_status
+      
+      - name: failed_call_count
+        business_name: Failed Call Count
+        description: >-
+          Number of calls that failed to complete successfully (status not 'Completed').
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(cdr.cdr_id) AS failed_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+                WHERE cdr.call_status != 'Completed'
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.call_status
+      
+      - name: call_completion_rate_pct
+        business_name: Call Completion Rate %
+        description: >-
+          Percentage of calls that completed successfully out of total calls. Calculated as
+          (completed calls / total calls) * 100.
+        return_type: percentage
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(cdr.cdr_id) = 0 THEN 0
+                        ELSE (SUM(CASE WHEN cdr.call_status = 'Completed' THEN 1 ELSE 0 END)::decimal / COUNT(cdr.cdr_id)) * 100
+                    END AS call_completion_rate_pct
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.call_status
+      
+      - name: roaming_call_count
+        business_name: Roaming Call Count
+        description: >-
+          Number of calls made while the subscriber was roaming (roaming_flag = true).
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(cdr.cdr_id) AS roaming_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+                WHERE cdr.roaming_flag = true
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.roaming_flag
+      
+      - name: roaming_call_revenue
+        business_name: Roaming Call Revenue
+        description: >-
+          Total revenue generated from roaming calls.
+        return_type: currency
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(cdr.charge_amount) AS roaming_call_revenue
+                FROM telecom_brz.call_detail_record AS cdr
+                WHERE cdr.roaming_flag = true
+              columns_used:
+                - call_detail_record.charge_amount
+                - call_detail_record.roaming_flag
+      
+      - name: outgoing_call_count
+        business_name: Outgoing Call Count
+        description: >-
+          Number of outgoing calls made by subscribers.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(cdr.cdr_id) AS outgoing_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+                WHERE cdr.call_direction = 'Outgoing'
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.call_direction
+      
+      - name: incoming_call_count
+        business_name: Incoming Call Count
+        description: >-
+          Number of incoming calls received by subscribers.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(cdr.cdr_id) AS incoming_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+                WHERE cdr.call_direction = 'Incoming'
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.call_direction
+      
+      - name: total_data_usage_gb
+        business_name: Total Data Usage GB
+        description: >-
+          Total data consumed across all network sessions measured in gigabytes. Calculated by
+          summing data_used_mb and converting to gigabytes.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(nds.data_used_mb) / 1024.0 AS total_data_usage_gb
+                FROM telecom_brz.network_device_session AS nds
+              columns_used:
+                - network_device_session.data_used_mb
+      
+      - name: total_session_count
+        business_name: Total Session Count
+        description: >-
+          Total number of network device sessions recorded in the system.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(nds.session_id) AS total_session_count
+                FROM telecom_brz.network_device_session AS nds
+              columns_used:
+                - network_device_session.session_id
+      
+      - name: average_data_usage_per_session_mb
+        business_name: Average Data Usage Per Session MB
+        description: >-
+          Average data consumed per network session measured in megabytes.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(nds.data_used_mb) AS average_data_usage_per_session_mb
+                FROM telecom_brz.network_device_session AS nds
+              columns_used:
+                - network_device_session.data_used_mb
+      
+      - name: completed_session_count
+        business_name: Completed Session Count
+        description: >-
+          Number of network sessions that completed successfully with status 'Completed'.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(nds.session_id) AS completed_session_count
+                FROM telecom_brz.network_device_session AS nds
+                WHERE nds.session_status = 'Completed'
+              columns_used:
+                - network_device_session.session_id
+                - network_device_session.session_status
+      
+      - name: average_signal_strength_dbm
+        business_name: Average Signal Strength dBm
+        description: >-
+          Average signal strength across all network sessions measured in dBm.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(nds.signal_strength_dbm) AS average_signal_strength_dbm
+                FROM telecom_brz.network_device_session AS nds
+              columns_used:
+                - network_device_session.signal_strength_dbm
+      
+      - name: total_subscriber_count
+        business_name: Total Subscriber Count
+        description: >-
+          Total number of subscribers in the system.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(s.subscriber_id) AS total_subscriber_count
+                FROM telecom_brz.subscriber AS s
+              columns_used:
+                - subscriber.subscriber_id
+      
+      - name: active_subscriber_count
+        business_name: Active Subscriber Count
+        description: >-
+          Number of subscribers with status 'ACTIVE'.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(s.subscriber_id) AS active_subscriber_count
+                FROM telecom_brz.subscriber AS s
+                WHERE s.status = 'ACTIVE'
+              columns_used:
+                - subscriber.subscriber_id
+                - subscriber.status
+      
+      - name: kyc_verified_subscriber_count
+        business_name: KYC Verified Subscriber Count
+        description: >-
+          Number of subscribers with completed KYC verification (kyc_verified = true).
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(s.subscriber_id) AS kyc_verified_subscriber_count
+                FROM telecom_brz.subscriber AS s
+                WHERE s.kyc_verified = true
+              columns_used:
+                - subscriber.subscriber_id
+                - subscriber.kyc_verified
+      
+      - name: revenue_per_subscriber
+        business_name: Revenue Per Subscriber
+        description: >-
+          Average call revenue per subscriber. Calculated as total call revenue divided by
+          the number of unique subscribers who made calls.
+        return_type: currency
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT cdr.subscriber_id) = 0 THEN 0
+                        ELSE SUM(cdr.charge_amount) / COUNT(DISTINCT cdr.subscriber_id)
+                    END AS revenue_per_subscriber
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.charge_amount
+                - call_detail_record.subscriber_id
+      
+      - name: calls_per_subscriber
+        business_name: Calls Per Subscriber
+        description: >-
+          Average number of calls per subscriber. Calculated as total call count divided by
+          the number of unique subscribers who made calls.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT cdr.subscriber_id) = 0 THEN 0
+                        ELSE COUNT(cdr.cdr_id)::decimal / COUNT(DISTINCT cdr.subscriber_id)
+                    END AS calls_per_subscriber
+                FROM telecom_brz.call_detail_record AS cdr
+              columns_used:
+                - call_detail_record.cdr_id
+                - call_detail_record.subscriber_id
+      
+      - name: data_usage_per_subscriber_gb
+        business_name: Data Usage Per Subscriber GB
+        description: >-
+          Average data usage per subscriber measured in gigabytes. Calculated as total data usage
+          divided by the number of unique subscribers who had network sessions.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT nds.subscriber_id) = 0 THEN 0
+                        ELSE (SUM(nds.data_used_mb) / 1024.0) / COUNT(DISTINCT nds.subscriber_id)
+                    END AS data_usage_per_subscriber_gb
+                FROM telecom_brz.network_device_session AS nds
+              columns_used:
+                - network_device_session.data_used_mb
+                - network_device_session.subscriber_id
+      
+      - name: total_tower_count
+        business_name: Total Tower Count
+        description: >-
+          Total number of cell towers in the infrastructure.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(ct.tower_id) AS total_tower_count
+                FROM telecom_brz.cell_tower AS ct
+              columns_used:
+                - cell_tower.tower_id
+      
+      - name: online_tower_count
+        business_name: Online Tower Count
+        description: >-
+          Number of cell towers with status 'ONLINE'.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(ct.tower_id) AS online_tower_count
+                FROM telecom_brz.cell_tower AS ct
+                WHERE ct.status = 'ONLINE'
+              columns_used:
+                - cell_tower.tower_id
+                - cell_tower.status
+      
+      - name: tower_availability_pct
+        business_name: Tower Availability %
+        description: >-
+          Percentage of cell towers that are currently online. Calculated as
+          (online towers / total towers) * 100.
+        return_type: percentage
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(ct.tower_id) = 0 THEN 0
+                        ELSE (SUM(CASE WHEN ct.status = 'ONLINE' THEN 1 ELSE 0 END)::decimal / COUNT(ct.tower_id)) * 100
+                    END AS tower_availability_pct
+                FROM telecom_brz.cell_tower AS ct
+              columns_used:
+                - cell_tower.tower_id
+                - cell_tower.status
+      
+      - name: total_billing_plan_revenue_potential
+        business_name: Total Billing Plan Revenue Potential
+        description: >-
+          Total potential monthly revenue from all active subscribers based on their assigned
+          billing plan monthly fees. Calculated by joining active subscribers to their billing plans
+          and summing the monthly_fee.
+        return_type: currency
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(bp.monthly_fee) AS total_billing_plan_revenue_potential
+                FROM telecom_brz.subscriber AS s
+                INNER JOIN telecom_brz.billing_plan AS bp
+                    ON s.plan_id = bp.plan_id
+                WHERE s.status = 'ACTIVE'
+                    AND bp.is_active = true
+              columns_used:
+                - subscriber.plan_id
+                - subscriber.status
+                - billing_plan.plan_id
+                - billing_plan.monthly_fee
+                - billing_plan.is_active
+      
+      - name: monthly_revenue_by_call_date
+        business_name: Monthly Revenue By Call Date
+        description: >-
+          Monthly call revenue aggregated by the month of the call start time. Returns one row
+          per month with the total revenue for that month.
+        return_type: currency
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', cdr.start_time) AS call_month,
+                    SUM(cdr.charge_amount) AS monthly_revenue
+                FROM telecom_brz.call_detail_record AS cdr
+                GROUP BY DATE_TRUNC('month', cdr.start_time)
+                ORDER BY call_month
+              columns_used:
+                - call_detail_record.start_time
+                - call_detail_record.charge_amount
+      
+      - name: monthly_data_usage_gb_by_session_date
+        business_name: Monthly Data Usage GB By Session Date
+        description: >-
+          Monthly data usage in gigabytes aggregated by the month of the session start time.
+          Returns one row per month with the total data usage for that month.
+        return_type: decimal
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', nds.session_start) AS session_month,
+                    SUM(nds.data_used_mb) / 1024.0 AS monthly_data_usage_gb
+                FROM telecom_brz.network_device_session AS nds
+                GROUP BY DATE_TRUNC('month', nds.session_start)
+                ORDER BY session_month
+              columns_used:
+                - network_device_session.session_start
+                - network_device_session.data_used_mb
+      
+      - name: revenue_by_subscriber
+        business_name: Revenue By Subscriber
+        description: >-
+          Total call revenue per subscriber. Returns one row per subscriber with their total
+          call revenue.
+        return_type: currency
+        result_grain: one row per subscriber
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    cdr.subscriber_id,
+                    SUM(cdr.charge_amount) AS subscriber_revenue
+                FROM telecom_brz.call_detail_record AS cdr
+                GROUP BY cdr.subscriber_id
+              columns_used:
+                - call_detail_record.subscriber_id
+                - call_detail_record.charge_amount
+      
+      - name: data_usage_by_subscriber_gb
+        business_name: Data Usage By Subscriber GB
+        description: >-
+          Total data usage per subscriber measured in gigabytes. Returns one row per subscriber
+          with their total data consumption.
+        return_type: decimal
+        result_grain: one row per subscriber
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    nds.subscriber_id,
+                    SUM(nds.data_used_mb) / 1024.0 AS subscriber_data_usage_gb
+                FROM telecom_brz.network_device_session AS nds
+                GROUP BY nds.subscriber_id
+              columns_used:
+                - network_device_session.subscriber_id
+                - network_device_session.data_used_mb
+      
+      - name: calls_by_tower
+        business_name: Calls By Tower
+        description: >-
+          Total number of calls handled by each cell tower. Returns one row per tower with
+          the call count.
+        return_type: integer
+        result_grain: one row per tower
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    cdr.tower_id,
+                    COUNT(cdr.cdr_id) AS tower_call_count
+                FROM telecom_brz.call_detail_record AS cdr
+                GROUP BY cdr.tower_id
+              columns_used:
+                - call_detail_record.tower_id
+                - call_detail_record.cdr_id
+      
+      - name: sessions_by_tower
+        business_name: Sessions By Tower
+        description: >-
+          Total number of network sessions handled by each cell tower. Returns one row per tower
+          with the session count.
+        return_type: integer
+        result_grain: one row per tower
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    nds.tower_id,
+                    COUNT(nds.session_id) AS tower_session_count
+                FROM telecom_brz.network_device_session AS nds
+                GROUP BY nds.tower_id
+              columns_used:
+                - network_device_session.tower_id
+                - network_device_session.session_id
+      
+      - name: revenue_by_region
+        business_name: Revenue By Region
+        description: >-
+          Total call revenue by subscriber region. Returns one row per region with the total
+          revenue from subscribers in that region.
+        return_type: currency
+        result_grain: one row per region
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    s.region,
+                    SUM(cdr.charge_amount) AS region_revenue
+                FROM telecom_brz.call_detail_record AS cdr
+                INNER JOIN telecom_brz.subscriber AS s
+                    ON cdr.subscriber_id = s.subscriber_id
+                GROUP BY s.region
+              columns_used:
+                - call_detail_record.subscriber_id
+                - call_detail_record.charge_amount
+                - subscriber.subscriber_id
+                - subscriber.region
+      
+      - name: subscribers_by_plan
+        business_name: Subscribers By Plan
+        description: >-
+          Number of active subscribers assigned to each billing plan. Returns one row per plan
+          with the subscriber count.
+        return_type: integer
+        result_grain: one row per plan
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    s.plan_id,
+                    COUNT(s.subscriber_id) AS plan_subscriber_count
+                FROM telecom_brz.subscriber AS s
+                WHERE s.status = 'ACTIVE'
+                GROUP BY s.plan_id
+              columns_used:
+                - subscriber.plan_id
+                - subscriber.subscriber_id
+                - subscriber.status
