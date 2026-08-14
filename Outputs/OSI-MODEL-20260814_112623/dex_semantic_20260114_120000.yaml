@@ -1,0 +1,2092 @@
+version: "1.0"
+
+semantic_model:
+  - name: customer_experience_semantic_model
+    description: >-
+      Comprehensive semantic model for Customer Experience analytics derived from the semantic schema.
+      This model encompasses customer transactions, product catalog, supply chain operations, marketing campaigns,
+      and organizational structure. The model supports analytical queries across orders, shipments, customer segments,
+      product performance, supplier reliability, employee management, and campaign effectiveness.
+      
+      Key analytical domains include:
+      - Customer order and revenue analysis
+      - Product and category performance
+      - Supply chain and shipment tracking
+      - Marketing campaign effectiveness
+      - Customer segmentation and behavior
+      - Employee and account manager assignments
+      - Multi-currency transaction analysis
+      - Store performance analysis
+    
+    ai_context:
+      instructions: >-
+        ## Dataset Grain Reference
+        
+        - **customers**: One row per customer. Contains customer profile and demographic information.
+        - **orders**: One row per customer order. Contains order header information including totals, dates, and status.
+        - **order_items**: One row per order line item (product within an order). Multiple rows per order.
+        - **products**: One row per product. Contains product catalog information.
+        - **product_categories**: One row per product category. Supports hierarchical category structure via parent_category_id.
+        - **suppliers**: One row per supplier. Contains supplier profile and reliability information.
+        - **stores**: One row per store location. Contains store profile and location information.
+        - **shipments**: One row per shipment. Contains shipment header information from supplier to store.
+        - **shipment_items**: One row per shipment line item (product within a shipment). Multiple rows per shipment.
+        - **employees**: One row per employee. Supports hierarchical employee structure via manager_id.
+        - **campaigns**: One row per marketing campaign. Contains campaign details and discount information.
+        - **customer_account_managers**: One row per customer-account manager assignment. Supports SCD Type-2 temporal tracking via valid_from and valid_to.
+        - **exchange_rates**: One row per currency per date. Contains daily exchange rates to USD.
+        
+        ## Metric Selection Guidance
+        
+        ### Order-Level Revenue
+        Use `orders.total_amount_usd` when analyzing revenue at the order level (e.g., revenue by customer, by order date, by store, by channel).
+        
+        ### Order-Item-Level Revenue
+        Use `order_items.line_revenue_usd` when analyzing revenue at the product level or when joining orders to order_items.
+        
+        ### Order-Level Cost
+        Use `orders.total_cost_usd` when analyzing cost at the order level.
+        
+        ### Order-Item-Level Cost
+        Use `order_items.line_cost_usd` when analyzing cost at the product level or when joining orders to order_items.
+        
+        ### Shipment Cost
+        Use `shipments.freight_cost_usd` for freight and logistics cost analysis.
+        
+        ### Product Pricing
+        Use `products.unit_price_usd` for catalog pricing. Use `order_items.unit_price_usd` for actual transaction pricing.
+        
+        ## Join Guidance
+        
+        ### Customer to Orders
+        Join `customers.customer_id = orders.customer_id` (one-to-many). One customer can have multiple orders.
+        
+        ### Orders to Order Items
+        Join `orders.order_id = order_items.order_id` (one-to-many). One order can have multiple line items.
+        
+        ### Order Items to Products
+        Join `order_items.product_id = products.product_id` (many-to-one). Multiple order items reference the same product.
+        
+        ### Products to Categories
+        Join `products.category_id = product_categories.category_id` (many-to-one). Multiple products belong to the same category.
+        
+        ### Products to Suppliers
+        Join `products.supplier_id = suppliers.supplier_id` (many-to-one). Multiple products are supplied by the same supplier.
+        
+        ### Orders to Stores
+        Join `orders.store_id = stores.store_id` (many-to-one). Multiple orders are fulfilled by the same store.
+        
+        ### Shipments to Suppliers
+        Join `shipments.supplier_id = suppliers.supplier_id` (many-to-many via shipments). One supplier can have multiple shipments.
+        
+        ### Shipments to Stores
+        Join `shipments.store_id = stores.store_id` (many-to-many via shipments). One store can receive multiple shipments.
+        
+        ### Shipments to Shipment Items
+        Join `shipments.shipment_id = shipment_items.shipment_id` (one-to-many). One shipment can have multiple line items.
+        
+        ### Shipment Items to Products
+        Join `shipment_items.product_id = products.product_id` (many-to-one). Multiple shipment items reference the same product.
+        
+        ### Employees Hierarchy
+        Join `employees.manager_id = employees.employee_id` (recursive self-join). One employee can manage multiple employees.
+        
+        ### Customer Account Manager Assignment (SCD Type-2)
+        Join `customer_account_managers.customer_id = customers.customer_id` AND `customer_account_managers.employee_id = employees.employee_id`.
+        This is a temporal relationship. Use `valid_from` and `valid_to` to determine the active account manager for a customer at a specific point in time.
+        
+        ### Orders to Exchange Rates (As-Of Join)
+        Join `orders.currency_code = exchange_rates.currency_code` AND `exchange_rates.rate_date <= orders.order_date::date`.
+        Select the most recent exchange rate on or before the order date. This is an as-of temporal join.
+        
+        ## Double-Counting Prevention
+        
+        ### Critical: Orders to Order Items Join
+        When joining `orders` to `order_items`, DO NOT sum `orders.total_amount_usd` or `orders.total_cost_usd`.
+        These are order-level aggregates that will be duplicated for each order item.
+        
+        Instead:
+        - Use `order_items.line_revenue_usd` for product-level revenue analysis.
+        - Use `order_items.line_cost_usd` for product-level cost analysis.
+        - Use `COUNT(DISTINCT orders.order_id)` for order counts after joining to order_items.
+        - Use window functions or subqueries to preserve order-level totals when needed.
+        
+        ### Critical: Shipments to Shipment Items Join
+        When joining `shipments` to `shipment_items`, DO NOT sum `shipments.freight_cost_usd`.
+        This is a shipment-level aggregate that will be duplicated for each shipment item.
+        
+        Instead:
+        - Use `COUNT(DISTINCT shipments.shipment_id)` for shipment counts.
+        - Allocate freight cost proportionally if needed, or analyze at shipment level only.
+        
+        ## Time Analysis Guidance
+        
+        ### Order Analysis
+        Use `orders.order_date` for order placement timing, revenue trends, and customer purchase behavior.
+        
+        ### Shipment Analysis
+        Use `shipments.ship_date` for shipment dispatch timing.
+        Use `shipments.expected_arrival` for planned delivery analysis.
+        Use `shipments.actual_arrival` for actual delivery analysis and delay calculation.
+        
+        ### Campaign Analysis
+        Use `campaigns.start_date` and `campaigns.end_date` for campaign period analysis.
+        
+        ### Customer Analysis
+        Use `customers.signup_date` for customer acquisition analysis and cohort analysis.
+        
+        ### Employee Analysis
+        Use `employees.hire_date` for employee tenure and hiring trend analysis.
+        
+        ## SCD Type-2 Guidance: Customer Account Manager Assignment
+        
+        The `customer_account_managers` table tracks historical account manager assignments using SCD Type-2.
+        
+        - `valid_from`: The date when the assignment became effective.
+        - `valid_to`: The date when the assignment ended. NULL indicates the current active assignment.
+        
+        To find the account manager for a customer at a specific date (e.g., order date):
+        
+        ```sql
+        JOIN customer_account_managers cam
+          ON cam.customer_id = orders.customer_id
+          AND orders.order_date::date >= cam.valid_from
+          AND orders.order_date::date < COALESCE(cam.valid_to, '9999-12-31'::date)
+        ```
+        
+        To find the current account manager for a customer:
+        
+        ```sql
+        WHERE cam.valid_to IS NULL
+        ```
+        
+        ## As-Of Join Guidance: Exchange Rates
+        
+        The `exchange_rates` table contains daily exchange rates from various currencies to USD.
+        
+        To convert an order amount to USD using the exchange rate effective on the order date:
+        
+        ```sql
+        SELECT
+          o.order_id,
+          o.local_amount,
+          o.currency_code,
+          er.usd_rate,
+          o.local_amount * er.usd_rate AS converted_amount_usd
+        FROM orders o
+        LEFT JOIN LATERAL (
+          SELECT usd_rate
+          FROM exchange_rates
+          WHERE currency_code = o.currency_code
+            AND rate_date <= o.order_date::date
+          ORDER BY rate_date DESC
+          LIMIT 1
+        ) er ON true
+        ```
+        
+        This retrieves the most recent exchange rate on or before the order date.
+        
+        ## Recursive Hierarchy Guidance: Employee Management Structure
+        
+        The `employees` table contains a self-referencing relationship via `manager_id`.
+        
+        To retrieve the full management hierarchy for an employee:
+        
+        ```sql
+        WITH RECURSIVE employee_hierarchy AS (
+          SELECT
+            employee_id,
+            employee_name,
+            manager_id,
+            role,
+            1 AS level
+          FROM employees
+          WHERE employee_id = <target_employee_id>
+          
+          UNION ALL
+          
+          SELECT
+            e.employee_id,
+            e.employee_name,
+            e.manager_id,
+            e.role,
+            eh.level + 1
+          FROM employees e
+          INNER JOIN employee_hierarchy eh ON e.employee_id = eh.manager_id
+        )
+        SELECT * FROM employee_hierarchy
+        ORDER BY level;
+        ```
+        
+        To count direct reports for each manager:
+        
+        ```sql
+        SELECT
+          m.employee_id,
+          m.employee_name,
+          COUNT(e.employee_id) AS direct_report_count
+        FROM employees m
+        LEFT JOIN employees e ON e.manager_id = m.employee_id
+        GROUP BY m.employee_id, m.employee_name
+        ```
+        
+        ## Recursive Hierarchy Guidance: Product Category Structure
+        
+        The `product_categories` table contains a self-referencing relationship via `parent_category_id`.
+        
+        To retrieve the full category hierarchy:
+        
+        ```sql
+        WITH RECURSIVE category_hierarchy AS (
+          SELECT
+            category_id,
+            category_name,
+            parent_category_id,
+            1 AS level
+          FROM product_categories
+          WHERE parent_category_id IS NULL
+          
+          UNION ALL
+          
+          SELECT
+            pc.category_id,
+            pc.category_name,
+            pc.parent_category_id,
+            ch.level + 1
+          FROM product_categories pc
+          INNER JOIN category_hierarchy ch ON pc.parent_category_id = ch.category_id
+        )
+        SELECT * FROM category_hierarchy
+        ORDER BY level, category_name;
+        ```
+        
+        ## Metric Interpretation
+        
+        ### Gross Profit
+        Calculated as Total Revenue minus Total Cost. Represents the profit before operating expenses.
+        
+        ### Gross Margin %
+        Calculated as (Gross Profit / Total Revenue) * 100. Represents profitability as a percentage of revenue.
+        
+        ### Average Order Value
+        Calculated as Total Revenue / Order Count. Represents the average revenue per order.
+        
+        ### Units Sold
+        Sum of quantity across order items. Represents total product units sold.
+        
+        ### Average Selling Price
+        Calculated as Total Revenue / Units Sold. Represents the average price per unit sold.
+        
+        ### Freight Cost
+        Sum of freight_cost_usd across shipments. Represents total logistics cost.
+        
+        ### Delivery Delay Days
+        Calculated as actual_arrival - expected_arrival. Positive values indicate late delivery.
+        
+        ### On-Time Delivery Rate
+        Percentage of shipments where actual_arrival <= expected_arrival.
+        
+        ### Supplier Reliability Score
+        Average reliability_score across suppliers. Higher scores indicate more reliable suppliers.
+        
+        ## Query Restrictions and Limitations
+        
+        ### Multi-Currency Handling
+        Orders are stored in both local currency (`local_amount`) and USD (`total_amount_usd`).
+        For consistent cross-currency analysis, always use the USD amounts or apply exchange rate conversion.
+        
+        ### Returned Orders
+        Orders with `is_returned = true` should be excluded or analyzed separately depending on the business question.
+        
+        ### Campaign Attribution
+        The data model does not contain a direct link between orders and campaigns.
+        Campaign effectiveness analysis requires temporal matching between order dates and campaign periods.
+        
+        ### Shipment-Order Relationship
+        There is no direct relationship between shipments and orders in this model.
+        Shipments represent supplier-to-store inventory movements, not customer order fulfillments.
+        
+        ### Product Cost Consistency
+        Product cost appears in both `products.unit_cost_usd` (catalog cost) and `order_items.unit_cost_usd` (transaction cost).
+        Use transaction-level cost for actual profitability analysis.
+
+    datasets:
+      - name: customers
+        business_name: Customers
+        description: >-
+          Contains customer profile and demographic information.
+          Grain: One row per customer.
+          This dataset represents individual customers who have registered or signed up.
+          Customers are classified into segments and tracked by signup date.
+        source: semantic.customers
+        primary_key:
+          - customer_id
+        fields:
+          - name: customer_id
+            business_name: Customer Identifier
+            description: Unique identifier for a customer.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: first_name
+            business_name: First Name
+            description: Given name of the customer.
+            sql_type: VARCHAR(50)
+            constraints:
+              - NOT NULL
+              - PII
+          
+          - name: last_name
+            business_name: Last Name
+            description: Family name of the customer.
+            sql_type: VARCHAR(50)
+            constraints:
+              - NOT NULL
+              - PII
+          
+          - name: email
+            business_name: Email
+            description: Email address of the customer.
+            sql_type: VARCHAR(150)
+            constraints:
+              - NOT NULL
+              - PII
+          
+          - name: phone
+            business_name: Phone
+            description: Phone number of the customer.
+            sql_type: VARCHAR(20)
+            constraints:
+              - PII
+          
+          - name: city
+            business_name: City
+            description: City of the customer's residence.
+            sql_type: VARCHAR(80)
+            constraints:
+              - PII
+            dimension:
+              is_time: false
+          
+          - name: country
+            business_name: Country
+            description: Country of the customer's residence.
+            sql_type: VARCHAR(80)
+            constraints:
+              - PII
+            dimension:
+              is_time: false
+          
+          - name: customer_segment
+            business_name: Customer Segment
+            description: Segment classification assigned to the customer.
+            sql_type: VARCHAR(20)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: signup_date
+            business_name: Signup Date
+            description: Date when the customer registered or signed up.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: true
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp when the customer record was created.
+            sql_type: TIMESTAMP(6)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: true
+
+      - name: orders
+        business_name: Orders
+        description: >-
+          Contains customer order header information.
+          Grain: One row per customer order.
+          This dataset represents individual customer orders with order-level totals, dates, status, and payment information.
+          Orders are linked to customers, stores, and contain multi-currency transaction data.
+        source: semantic.orders
+        primary_key:
+          - order_id
+        fields:
+          - name: order_id
+            business_name: Order Identifier
+            description: Unique identifier for a customer order.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: customer_id
+            business_name: Customer ID
+            description: References the related customer who placed the order.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: store_id
+            business_name: Store ID
+            description: References the related store where the order was fulfilled.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: order_date
+            business_name: Order Date
+            description: Timestamp when the order was placed.
+            sql_type: TIMESTAMP(6)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: order_channel
+            business_name: Order Channel
+            description: Sales channel through which the order was placed.
+            sql_type: VARCHAR(20)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: payment_method
+            business_name: Payment Method
+            description: Payment method selected for the order.
+            sql_type: VARCHAR(20)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: order_status
+            business_name: Order Status
+            description: Indicates the current status of the order.
+            sql_type: VARCHAR(20)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: is_returned
+            business_name: Is Returned
+            description: Indicates whether the order has been returned.
+            sql_type: BOOL
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: customer_rating
+            business_name: Customer Rating
+            description: Rating provided by the customer for the order experience.
+            sql_type: INT2
+          
+          - name: currency_code
+            business_name: Currency Code
+            description: Currency in which the order was placed.
+            sql_type: VARCHAR(3)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: total_amount_usd
+            business_name: Total Amount USD
+            description: Total order amount in USD.
+            sql_type: NUMERIC(12,2)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+          
+          - name: local_amount
+            business_name: Local Amount
+            description: Total order amount in the local currency.
+            sql_type: NUMERIC(14,2)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+          
+          - name: total_cost_usd
+            business_name: Total Cost USD
+            description: Total cost associated with fulfilling the order in USD.
+            sql_type: NUMERIC(12,2)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+
+      - name: order_items
+        business_name: Order Items
+        description: >-
+          Contains order line item details.
+          Grain: One row per order line item (product within an order).
+          This dataset represents individual products within customer orders, including quantity, pricing, discounts, and computed revenue and cost.
+          Multiple order items can belong to a single order.
+        source: semantic.order_items
+        primary_key:
+          - order_item_id
+        fields:
+          - name: order_item_id
+            business_name: Order Item Identifier
+            description: Unique identifier for an order line item.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: order_id
+            business_name: Order ID
+            description: References the related order record.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: product_id
+            business_name: Product ID
+            description: References the related product record.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: quantity
+            business_name: Quantity
+            description: Number of product units in the order line item.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+          
+          - name: unit_price_usd
+            business_name: Unit Price USD
+            description: Unit selling price of the product in USD.
+            sql_type: NUMERIC(10,2)
+            constraints:
+              - NOT NULL
+          
+          - name: unit_cost_usd
+            business_name: Unit Cost USD
+            description: Unit cost of the product in USD.
+            sql_type: NUMERIC(10,2)
+            constraints:
+              - NOT NULL
+          
+          - name: discount_pct
+            business_name: Discount Percentage
+            description: Percentage discount applied to the order line item.
+            sql_type: NUMERIC(5,2)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+          
+          - name: line_revenue_usd
+            business_name: Line Revenue USD
+            description: Revenue for the order line item in USD after discount. Computed as quantity * unit_price_usd * (1 - discount_pct / 100).
+            sql_type: NUMERIC(12,2)
+            constraints:
+              - DEFAULT
+              - COMPUTED
+          
+          - name: line_cost_usd
+            business_name: Line Cost USD
+            description: Cost for the order line item in USD. Computed as quantity * unit_cost_usd.
+            sql_type: NUMERIC(12,2)
+            constraints:
+              - DEFAULT
+              - COMPUTED
+
+      - name: products
+        business_name: Products
+        description: >-
+          Contains product catalog information.
+          Grain: One row per product.
+          This dataset represents individual products available for sale, including pricing, cost, category, and supplier information.
+        source: semantic.products
+        primary_key:
+          - product_id
+        fields:
+          - name: product_id
+            business_name: Product Identifier
+            description: Unique identifier for a product.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: product_name
+            business_name: Product Name
+            description: Name of the product.
+            sql_type: VARCHAR(150)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: category_id
+            business_name: Category ID
+            description: References the related product category record.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: unit_cost_usd
+            business_name: Unit Cost USD
+            description: Unit cost of the product in USD.
+            sql_type: NUMERIC(10,2)
+            constraints:
+              - NOT NULL
+          
+          - name: unit_price_usd
+            business_name: Unit Price USD
+            description: Unit selling price of the product in USD.
+            sql_type: NUMERIC(10,2)
+            constraints:
+              - NOT NULL
+          
+          - name: supplier_id
+            business_name: Supplier ID
+            description: References the related supplier providing the product.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp when the product record was created.
+            sql_type: TIMESTAMP(6)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: true
+
+      - name: product_categories
+        business_name: Product Categories
+        description: >-
+          Contains product category information with hierarchical structure.
+          Grain: One row per product category.
+          This dataset represents product categories organized in a hierarchical structure via parent_category_id.
+          Categories can have parent categories, enabling multi-level category hierarchies.
+        source: semantic.product_categories
+        primary_key:
+          - category_id
+        fields:
+          - name: category_id
+            business_name: Category Identifier
+            description: Unique identifier for a product category.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: category_name
+            business_name: Category Name
+            description: Name of the product category.
+            sql_type: VARCHAR(100)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: parent_category_id
+            business_name: Parent Category ID
+            description: References the related parent product category record. Enables hierarchical category structure.
+            sql_type: INT4
+            constraints:
+              - FOREIGN KEY
+
+      - name: suppliers
+        business_name: Suppliers
+        description: >-
+          Contains supplier profile and reliability information.
+          Grain: One row per supplier.
+          This dataset represents supplier organizations that provide products, including location and reliability scoring.
+        source: semantic.suppliers
+        primary_key:
+          - supplier_id
+        fields:
+          - name: supplier_id
+            business_name: Supplier Identifier
+            description: Unique identifier for a supplier.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: supplier_name
+            business_name: Supplier Name
+            description: Name of the supplier organization.
+            sql_type: VARCHAR(120)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: country
+            business_name: Country
+            description: Country where the supplier is based.
+            sql_type: VARCHAR(80)
+            dimension:
+              is_time: false
+          
+          - name: contact_email
+            business_name: Contact Email
+            description: Contact email address for the supplier.
+            sql_type: VARCHAR(150)
+            constraints:
+              - PII
+          
+          - name: reliability_score
+            business_name: Reliability Score
+            description: Score indicating the supplier's reliability. Higher scores indicate more reliable suppliers.
+            sql_type: NUMERIC(3,2)
+            constraints:
+              - DEFAULT
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp when the supplier record was created.
+            sql_type: TIMESTAMP(6)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: true
+
+      - name: stores
+        business_name: Stores
+        description: >-
+          Contains store location and profile information.
+          Grain: One row per store location.
+          This dataset represents physical or virtual store locations where orders are fulfilled.
+        source: semantic.stores
+        primary_key:
+          - store_id
+        fields:
+          - name: store_id
+            business_name: Store Identifier
+            description: Unique identifier for a store.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: store_name
+            business_name: Store Name
+            description: Name of the store.
+            sql_type: VARCHAR(120)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: city
+            business_name: City
+            description: City where the store is located.
+            sql_type: VARCHAR(80)
+            dimension:
+              is_time: false
+          
+          - name: country
+            business_name: Country
+            description: Country where the store is located.
+            sql_type: VARCHAR(80)
+            dimension:
+              is_time: false
+          
+          - name: store_type
+            business_name: Store Type
+            description: Type or format of the store.
+            sql_type: VARCHAR(30)
+            dimension:
+              is_time: false
+          
+          - name: created_at
+            business_name: Created At
+            description: Timestamp when the store record was created.
+            sql_type: TIMESTAMP(6)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: true
+
+      - name: shipments
+        business_name: Shipments
+        description: >-
+          Contains shipment header information for supplier-to-store inventory movements.
+          Grain: One row per shipment.
+          This dataset represents shipments from suppliers to stores, including shipping dates, arrival dates, freight costs, and status.
+        source: semantic.shipments
+        primary_key:
+          - shipment_id
+        fields:
+          - name: shipment_id
+            business_name: Shipment Identifier
+            description: Unique identifier for a shipment.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: supplier_id
+            business_name: Supplier ID
+            description: References the related supplier responsible for the shipment.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: store_id
+            business_name: Store ID
+            description: References the related store receiving the shipment.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: ship_date
+            business_name: Ship Date
+            description: Timestamp when the shipment was dispatched.
+            sql_type: TIMESTAMP(6)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: expected_arrival
+            business_name: Expected Arrival
+            description: Expected arrival date of the shipment.
+            sql_type: DATE
+            dimension:
+              is_time: true
+          
+          - name: actual_arrival
+            business_name: Actual Arrival
+            description: Actual arrival date of the shipment.
+            sql_type: DATE
+            dimension:
+              is_time: true
+          
+          - name: freight_cost_usd
+            business_name: Freight Cost USD
+            description: Freight cost of the shipment in USD.
+            sql_type: NUMERIC(10,2)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+          
+          - name: shipment_status
+            business_name: Shipment Status
+            description: Indicates the current status of the shipment.
+            sql_type: VARCHAR(20)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: false
+
+      - name: shipment_items
+        business_name: Shipment Items
+        description: >-
+          Contains shipment line item details.
+          Grain: One row per shipment line item (product within a shipment).
+          This dataset represents individual products within shipments, including quantities.
+          Multiple shipment items can belong to a single shipment.
+        source: semantic.shipment_items
+        primary_key:
+          - shipment_item_id
+        fields:
+          - name: shipment_item_id
+            business_name: Shipment Item Identifier
+            description: Unique identifier for a shipment line item.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: shipment_id
+            business_name: Shipment ID
+            description: References the related shipment record.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: product_id
+            business_name: Product ID
+            description: References the related product included in the shipment.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: quantity
+            business_name: Quantity
+            description: Number of product units in the shipment line item.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+
+      - name: employees
+        business_name: Employees
+        description: >-
+          Contains employee profile and organizational hierarchy information.
+          Grain: One row per employee.
+          This dataset represents employees with their roles, regions, and hierarchical management structure via manager_id.
+          Employees can have managers, enabling recursive organizational hierarchy queries.
+        source: semantic.employees
+        primary_key:
+          - employee_id
+        fields:
+          - name: employee_id
+            business_name: Employee Identifier
+            description: Unique identifier for an employee.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: employee_name
+            business_name: Employee Name
+            description: Full name of the employee.
+            sql_type: VARCHAR(100)
+            constraints:
+              - NOT NULL
+              - PII
+          
+          - name: role
+            business_name: Role
+            description: Job role or position of the employee.
+            sql_type: VARCHAR(40)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: manager_id
+            business_name: Manager ID
+            description: References the related employee record acting as the manager. Enables hierarchical employee structure.
+            sql_type: INT4
+            constraints:
+              - FOREIGN KEY
+          
+          - name: region
+            business_name: Region
+            description: Geographic region where the employee operates.
+            sql_type: VARCHAR(80)
+            dimension:
+              is_time: false
+          
+          - name: hire_date
+            business_name: Hire Date
+            description: Date when the employee was hired.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+              - DEFAULT
+            dimension:
+              is_time: true
+
+      - name: campaigns
+        business_name: Campaigns
+        description: >-
+          Contains marketing campaign information.
+          Grain: One row per marketing campaign.
+          This dataset represents marketing campaigns with their channels, target segments, date ranges, and discount offerings.
+        source: semantic.campaigns
+        primary_key:
+          - campaign_id
+        fields:
+          - name: campaign_id
+            business_name: Campaign Identifier
+            description: Unique identifier for a marketing campaign.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: campaign_name
+            business_name: Campaign Name
+            description: Name of the marketing campaign.
+            sql_type: VARCHAR(120)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: channel
+            business_name: Channel
+            description: Marketing channel through which the campaign is delivered.
+            sql_type: VARCHAR(20)
+            dimension:
+              is_time: false
+          
+          - name: target_segment
+            business_name: Target Segment
+            description: Customer segment targeted by the campaign.
+            sql_type: VARCHAR(20)
+            dimension:
+              is_time: false
+          
+          - name: start_date
+            business_name: Start Date
+            description: Date when the campaign becomes active.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: end_date
+            business_name: End Date
+            description: Date when the campaign ends.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: discount_pct
+            business_name: Discount Percentage
+            description: Percentage discount offered by the campaign.
+            sql_type: NUMERIC(5,2)
+            constraints:
+              - NOT NULL
+              - DEFAULT
+
+      - name: customer_account_managers
+        business_name: Customer Account Managers
+        description: >-
+          Contains customer account manager assignments with temporal validity tracking (SCD Type-2).
+          Grain: One row per customer account manager assignment.
+          This dataset represents the assignment of account managers to customers over time.
+          Multiple rows can exist for the same customer, representing historical and current assignments.
+          The valid_from and valid_to fields define the effective period of each assignment.
+        source: semantic.customer_account_managers
+        primary_key:
+          - assignment_id
+        fields:
+          - name: assignment_id
+            business_name: Assignment Identifier
+            description: Unique identifier for a customer account manager assignment.
+            sql_type: SERIAL
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - DEFAULT
+              - AUTO_INCREMENT
+          
+          - name: customer_id
+            business_name: Customer ID
+            description: References the related customer record.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: employee_id
+            business_name: Employee ID
+            description: References the related employee record acting as account manager.
+            sql_type: INT4
+            constraints:
+              - NOT NULL
+              - FOREIGN KEY
+          
+          - name: valid_from
+            business_name: Valid From
+            description: Date from which the account manager assignment is effective.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: valid_to
+            business_name: Valid To
+            description: Date until which the account manager assignment is effective. NULL indicates current active assignment.
+            sql_type: DATE
+            dimension:
+              is_time: true
+
+      - name: exchange_rates
+        business_name: Exchange Rates
+        description: >-
+          Contains daily exchange rates from various currencies to USD.
+          Grain: One row per currency per date.
+          This dataset represents exchange rates for currency conversion, enabling as-of temporal joins with transaction dates.
+        source: semantic.exchange_rates
+        primary_key:
+          - currency_code
+          - rate_date
+        fields:
+          - name: currency_code
+            business_name: Currency Code
+            description: Three-letter ISO code of the currency.
+            sql_type: VARCHAR(3)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: rate_date
+            business_name: Rate Date
+            description: Date when the exchange rate applies.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: usd_rate
+            business_name: USD Rate
+            description: Exchange rate from the currency to USD.
+            sql_type: NUMERIC(12,6)
+            constraints:
+              - NOT NULL
+
+    relationships:
+      - name: orders_to_customers
+        left_dataset: orders
+        right_dataset: customers
+        relationship_type: many_to_one
+        join:
+          left:
+            - customer_id
+          right:
+            - customer_id
+        join_type: many_to_one
+        resolution: >-
+          Many orders can belong to one customer. Join orders.customer_id = customers.customer_id.
+          This is a standard foreign key relationship.
+
+      - name: order_items_to_orders
+        left_dataset: order_items
+        right_dataset: orders
+        relationship_type: many_to_one
+        join:
+          left:
+            - order_id
+          right:
+            - order_id
+        join_type: many_to_one
+        resolution: >-
+          Many order items belong to one order. Join order_items.order_id = orders.order_id.
+          This is a standard foreign key relationship.
+          CRITICAL: When joining orders to order_items, do not sum orders.total_amount_usd or orders.total_cost_usd.
+          These are order-level aggregates that will be duplicated for each order item.
+          Use order_items.line_revenue_usd and order_items.line_cost_usd for product-level analysis.
+
+      - name: order_items_to_products
+        left_dataset: order_items
+        right_dataset: products
+        relationship_type: many_to_one
+        join:
+          left:
+            - product_id
+          right:
+            - product_id
+        join_type: many_to_one
+        resolution: >-
+          Many order items reference one product. Join order_items.product_id = products.product_id.
+          This is a standard foreign key relationship.
+
+      - name: products_to_product_categories
+        left_dataset: products
+        right_dataset: product_categories
+        relationship_type: many_to_one
+        join:
+          left:
+            - category_id
+          right:
+            - category_id
+        join_type: many_to_one
+        resolution: >-
+          Many products belong to one product category. Join products.category_id = product_categories.category_id.
+          This is a standard foreign key relationship.
+
+      - name: products_to_suppliers
+        left_dataset: products
+        right_dataset: suppliers
+        relationship_type: many_to_one
+        join:
+          left:
+            - supplier_id
+          right:
+            - supplier_id
+        join_type: many_to_one
+        resolution: >-
+          Many products are supplied by one supplier. Join products.supplier_id = suppliers.supplier_id.
+          This is a standard foreign key relationship.
+
+      - name: orders_to_stores
+        left_dataset: orders
+        right_dataset: stores
+        relationship_type: many_to_one
+        join:
+          left:
+            - store_id
+          right:
+            - store_id
+        join_type: many_to_one
+        resolution: >-
+          Many orders are fulfilled by one store. Join orders.store_id = stores.store_id.
+          This is a standard foreign key relationship.
+
+      - name: shipments_to_suppliers
+        left_dataset: shipments
+        right_dataset: suppliers
+        relationship_type: many_to_one
+        join:
+          left:
+            - supplier_id
+          right:
+            - supplier_id
+        join_type: many_to_one
+        resolution: >-
+          Many shipments originate from one supplier. Join shipments.supplier_id = suppliers.supplier_id.
+          This is a standard foreign key relationship.
+
+      - name: shipments_to_stores
+        left_dataset: shipments
+        right_dataset: stores
+        relationship_type: many_to_one
+        join:
+          left:
+            - store_id
+          right:
+            - store_id
+        join_type: many_to_one
+        resolution: >-
+          Many shipments are delivered to one store. Join shipments.store_id = stores.store_id.
+          This is a standard foreign key relationship.
+
+      - name: shipment_items_to_shipments
+        left_dataset: shipment_items
+        right_dataset: shipments
+        relationship_type: many_to_one
+        join:
+          left:
+            - shipment_id
+          right:
+            - shipment_id
+        join_type: many_to_one
+        resolution: >-
+          Many shipment items belong to one shipment. Join shipment_items.shipment_id = shipments.shipment_id.
+          This is a standard foreign key relationship.
+          CRITICAL: When joining shipments to shipment_items, do not sum shipments.freight_cost_usd.
+          This is a shipment-level aggregate that will be duplicated for each shipment item.
+
+      - name: shipment_items_to_products
+        left_dataset: shipment_items
+        right_dataset: products
+        relationship_type: many_to_one
+        join:
+          left:
+            - product_id
+          right:
+            - product_id
+        join_type: many_to_one
+        resolution: >-
+          Many shipment items reference one product. Join shipment_items.product_id = products.product_id.
+          This is a standard foreign key relationship.
+
+      - name: employees_hierarchy
+        left_dataset: employees
+        right_dataset: employees
+        relationship_type: many_to_one
+        join:
+          left:
+            - manager_id
+          right:
+            - employee_id
+        join_type: many_to_one
+        resolution: >-
+          Recursive self-referencing relationship. Many employees report to one manager.
+          Join employees.manager_id = manager.employee_id.
+          This enables hierarchical organizational structure queries.
+          Use recursive CTEs to traverse the full management hierarchy.
+
+      - name: product_categories_hierarchy
+        left_dataset: product_categories
+        right_dataset: product_categories
+        relationship_type: many_to_one
+        join:
+          left:
+            - parent_category_id
+          right:
+            - category_id
+        join_type: many_to_one
+        resolution: >-
+          Recursive self-referencing relationship. Many categories belong to one parent category.
+          Join product_categories.parent_category_id = parent_category.category_id.
+          This enables hierarchical category structure queries.
+          Use recursive CTEs to traverse the full category hierarchy.
+
+      - name: customer_account_managers_to_customers
+        left_dataset: customer_account_managers
+        right_dataset: customers
+        relationship_type: many_to_one
+        join:
+          left:
+            - customer_id
+          right:
+            - customer_id
+        join_type: many_to_one
+        resolution: >-
+          Many account manager assignments reference one customer. Join customer_account_managers.customer_id = customers.customer_id.
+          This is a standard foreign key relationship with temporal validity tracking (SCD Type-2).
+
+      - name: customer_account_managers_to_employees
+        left_dataset: customer_account_managers
+        right_dataset: employees
+        relationship_type: many_to_one
+        join:
+          left:
+            - employee_id
+          right:
+            - employee_id
+        join_type: many_to_one
+        resolution: >-
+          Many account manager assignments reference one employee. Join customer_account_managers.employee_id = employees.employee_id.
+          This is a standard foreign key relationship with temporal validity tracking (SCD Type-2).
+
+      - name: orders_to_customer_account_managers_scd
+        left_dataset: orders
+        right_dataset: customer_account_managers
+        relationship_type: many_to_one
+        join:
+          left:
+            - customer_id
+            - order_date
+          right:
+            - customer_id
+            - valid_from
+            - valid_to
+        join_type: scd_type2_date_range
+        resolution: >-
+          SCD Type-2 temporal relationship. To find the account manager responsible for a customer at the time of an order,
+          join on customer_id and match the order_date against the valid_from and valid_to date range.
+          
+          Join condition:
+          orders.customer_id = customer_account_managers.customer_id
+          AND orders.order_date::date >= customer_account_managers.valid_from
+          AND orders.order_date::date < COALESCE(customer_account_managers.valid_to, '9999-12-31'::date)
+          
+          This retrieves the account manager assignment that was effective on the order date.
+          NULL valid_to indicates the current active assignment.
+
+      - name: orders_to_exchange_rates_asof
+        left_dataset: orders
+        right_dataset: exchange_rates
+        relationship_type: many_to_one
+        join:
+          left:
+            - currency_code
+            - order_date
+          right:
+            - currency_code
+            - rate_date
+        join_type: as_of
+        resolution: >-
+          As-of temporal relationship. To find the exchange rate effective on the order date,
+          join on currency_code and select the most recent rate_date on or before the order_date.
+          
+          Join condition (using LATERAL join in PostgreSQL):
+          LEFT JOIN LATERAL (
+            SELECT usd_rate
+            FROM exchange_rates
+            WHERE currency_code = orders.currency_code
+              AND rate_date <= orders.order_date::date
+            ORDER BY rate_date DESC
+            LIMIT 1
+          ) er ON true
+          
+          This retrieves the most recent exchange rate on or before the order date for currency conversion.
+
+    metrics:
+      - name: total_revenue_usd
+        business_name: Total Revenue USD
+        description: >-
+          Total revenue from all orders in USD.
+          Calculated as the sum of total_amount_usd across all orders.
+          This metric represents order-level revenue and should be used for customer, store, channel, and time-based revenue analysis.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(orders.total_amount_usd) AS total_revenue_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.total_amount_usd
+                - orders.is_returned
+
+      - name: total_cost_usd
+        business_name: Total Cost USD
+        description: >-
+          Total cost from all orders in USD.
+          Calculated as the sum of total_cost_usd across all orders.
+          This metric represents order-level cost and should be used for profitability analysis.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(orders.total_cost_usd) AS total_cost_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.total_cost_usd
+                - orders.is_returned
+
+      - name: gross_profit_usd
+        business_name: Gross Profit USD
+        description: >-
+          Gross profit from all orders in USD.
+          Calculated as total revenue minus total cost.
+          Represents profit before operating expenses.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(orders.total_amount_usd) - SUM(orders.total_cost_usd) AS gross_profit_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.total_amount_usd
+                - orders.total_cost_usd
+                - orders.is_returned
+
+      - name: gross_margin_pct
+        business_name: Gross Margin Percentage
+        description: >-
+          Gross margin as a percentage of revenue.
+          Calculated as (gross profit / total revenue) * 100.
+          Represents profitability as a percentage of revenue.
+          Safe division handles zero revenue scenarios.
+        return_type: percentage
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  CASE
+                    WHEN SUM(orders.total_amount_usd) = 0 THEN 0
+                    ELSE (
+                      (SUM(orders.total_amount_usd) - SUM(orders.total_cost_usd))
+                      / NULLIF(SUM(orders.total_amount_usd), 0)
+                    ) * 100
+                  END AS gross_margin_pct
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.total_amount_usd
+                - orders.total_cost_usd
+                - orders.is_returned
+
+      - name: order_count
+        business_name: Order Count
+        description: >-
+          Total number of orders.
+          Calculated as the count of distinct order_id.
+          Excludes returned orders.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  COUNT(DISTINCT orders.order_id) AS order_count
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.order_id
+                - orders.is_returned
+
+      - name: customer_count
+        business_name: Customer Count
+        description: >-
+          Total number of unique customers.
+          Calculated as the count of distinct customer_id.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  COUNT(DISTINCT customers.customer_id) AS customer_count
+                FROM semantic.customers AS customers
+              columns_used:
+                - customers.customer_id
+
+      - name: average_order_value_usd
+        business_name: Average Order Value USD
+        description: >-
+          Average revenue per order in USD.
+          Calculated as total revenue divided by order count.
+          Represents the average amount spent per order.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(orders.total_amount_usd) / NULLIF(COUNT(DISTINCT orders.order_id), 0) AS average_order_value_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.total_amount_usd
+                - orders.order_id
+                - orders.is_returned
+
+      - name: units_sold
+        business_name: Units Sold
+        description: >-
+          Total number of product units sold.
+          Calculated as the sum of quantity across all order items.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(order_items.quantity) AS units_sold
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                WHERE orders.is_returned = false
+              columns_used:
+                - order_items.quantity
+                - order_items.order_id
+                - orders.order_id
+                - orders.is_returned
+
+      - name: product_revenue_usd
+        business_name: Product Revenue USD
+        description: >-
+          Total revenue at the product level in USD.
+          Calculated as the sum of line_revenue_usd across all order items.
+          This metric should be used for product-level revenue analysis.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(order_items.line_revenue_usd) AS product_revenue_usd
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                WHERE orders.is_returned = false
+              columns_used:
+                - order_items.line_revenue_usd
+                - order_items.order_id
+                - orders.order_id
+                - orders.is_returned
+
+      - name: product_cost_usd
+        business_name: Product Cost USD
+        description: >-
+          Total cost at the product level in USD.
+          Calculated as the sum of line_cost_usd across all order items.
+          This metric should be used for product-level cost analysis.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(order_items.line_cost_usd) AS product_cost_usd
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                WHERE orders.is_returned = false
+              columns_used:
+                - order_items.line_cost_usd
+                - order_items.order_id
+                - orders.order_id
+                - orders.is_returned
+
+      - name: product_profit_usd
+        business_name: Product Profit USD
+        description: >-
+          Total profit at the product level in USD.
+          Calculated as product revenue minus product cost.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(order_items.line_revenue_usd) - SUM(order_items.line_cost_usd) AS product_profit_usd
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                WHERE orders.is_returned = false
+              columns_used:
+                - order_items.line_revenue_usd
+                - order_items.line_cost_usd
+                - order_items.order_id
+                - orders.order_id
+                - orders.is_returned
+
+      - name: average_selling_price_usd
+        business_name: Average Selling Price USD
+        description: >-
+          Average selling price per unit in USD.
+          Calculated as total product revenue divided by total units sold.
+          Represents the weighted average price per unit across all transactions.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(order_items.line_revenue_usd) / NULLIF(SUM(order_items.quantity), 0) AS average_selling_price_usd
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                WHERE orders.is_returned = false
+              columns_used:
+                - order_items.line_revenue_usd
+                - order_items.quantity
+                - order_items.order_id
+                - orders.order_id
+                - orders.is_returned
+
+      - name: total_freight_cost_usd
+        business_name: Total Freight Cost USD
+        description: >-
+          Total freight cost across all shipments in USD.
+          Calculated as the sum of freight_cost_usd across all shipments.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(shipments.freight_cost_usd) AS total_freight_cost_usd
+                FROM semantic.shipments AS shipments
+              columns_used:
+                - shipments.freight_cost_usd
+
+      - name: shipment_count
+        business_name: Shipment Count
+        description: >-
+          Total number of shipments.
+          Calculated as the count of distinct shipment_id.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  COUNT(DISTINCT shipments.shipment_id) AS shipment_count
+                FROM semantic.shipments AS shipments
+              columns_used:
+                - shipments.shipment_id
+
+      - name: average_delivery_delay_days
+        business_name: Average Delivery Delay Days
+        description: >-
+          Average number of days between expected and actual arrival.
+          Calculated as the average of (actual_arrival - expected_arrival).
+          Positive values indicate late delivery. Negative values indicate early delivery.
+          Only includes shipments with both expected and actual arrival dates.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  AVG(shipments.actual_arrival - shipments.expected_arrival) AS average_delivery_delay_days
+                FROM semantic.shipments AS shipments
+                WHERE shipments.actual_arrival IS NOT NULL
+                  AND shipments.expected_arrival IS NOT NULL
+              columns_used:
+                - shipments.actual_arrival
+                - shipments.expected_arrival
+
+      - name: on_time_delivery_rate_pct
+        business_name: On-Time Delivery Rate Percentage
+        description: >-
+          Percentage of shipments delivered on or before the expected arrival date.
+          Calculated as (count of on-time shipments / total shipments with arrival dates) * 100.
+          Only includes shipments with both expected and actual arrival dates.
+        return_type: percentage
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  (
+                    COUNT(CASE WHEN shipments.actual_arrival <= shipments.expected_arrival THEN 1 END)::DECIMAL
+                    / NULLIF(COUNT(*), 0)
+                  ) * 100 AS on_time_delivery_rate_pct
+                FROM semantic.shipments AS shipments
+                WHERE shipments.actual_arrival IS NOT NULL
+                  AND shipments.expected_arrival IS NOT NULL
+              columns_used:
+                - shipments.actual_arrival
+                - shipments.expected_arrival
+
+      - name: average_supplier_reliability_score
+        business_name: Average Supplier Reliability Score
+        description: >-
+          Average reliability score across all suppliers.
+          Calculated as the average of reliability_score.
+          Higher scores indicate more reliable suppliers.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  AVG(suppliers.reliability_score) AS average_supplier_reliability_score
+                FROM semantic.suppliers AS suppliers
+              columns_used:
+                - suppliers.reliability_score
+
+      - name: revenue_per_customer_usd
+        business_name: Revenue Per Customer USD
+        description: >-
+          Average revenue per customer in USD.
+          Calculated as total revenue divided by customer count.
+        return_type: currency_usd
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  SUM(orders.total_amount_usd) / NULLIF(COUNT(DISTINCT orders.customer_id), 0) AS revenue_per_customer_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.total_amount_usd
+                - orders.customer_id
+                - orders.is_returned
+
+      - name: orders_per_customer
+        business_name: Orders Per Customer
+        description: >-
+          Average number of orders per customer.
+          Calculated as total orders divided by customer count.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  COUNT(DISTINCT orders.order_id)::DECIMAL / NULLIF(COUNT(DISTINCT orders.customer_id), 0) AS orders_per_customer
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+              columns_used:
+                - orders.order_id
+                - orders.customer_id
+                - orders.is_returned
+
+      - name: average_customer_rating
+        business_name: Average Customer Rating
+        description: >-
+          Average customer rating across all orders.
+          Calculated as the average of customer_rating.
+          Only includes orders with ratings.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  AVG(orders.customer_rating) AS average_customer_rating
+                FROM semantic.orders AS orders
+                WHERE orders.customer_rating IS NOT NULL
+                  AND orders.is_returned = false
+              columns_used:
+                - orders.customer_rating
+                - orders.is_returned
+
+      - name: return_rate_pct
+        business_name: Return Rate Percentage
+        description: >-
+          Percentage of orders that have been returned.
+          Calculated as (count of returned orders / total orders) * 100.
+        return_type: percentage
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  (
+                    COUNT(CASE WHEN orders.is_returned = true THEN 1 END)::DECIMAL
+                    / NULLIF(COUNT(*), 0)
+                  ) * 100 AS return_rate_pct
+                FROM semantic.orders AS orders
+              columns_used:
+                - orders.is_returned
+
+      - name: monthly_revenue_usd
+        business_name: Monthly Revenue USD
+        description: >-
+          Total revenue by month in USD.
+          Calculated as the sum of total_amount_usd grouped by month.
+          Uses order_date for time grouping.
+        return_type: currency_usd
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  DATE_TRUNC('month', orders.order_date) AS order_month,
+                  SUM(orders.total_amount_usd) AS monthly_revenue_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+                GROUP BY DATE_TRUNC('month', orders.order_date)
+                ORDER BY order_month
+              columns_used:
+                - orders.order_date
+                - orders.total_amount_usd
+                - orders.is_returned
+
+      - name: revenue_by_customer_segment_usd
+        business_name: Revenue By Customer Segment USD
+        description: >-
+          Total revenue by customer segment in USD.
+          Calculated as the sum of total_amount_usd grouped by customer_segment.
+        return_type: currency_usd
+        result_grain: one row per customer segment
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  customers.customer_segment,
+                  SUM(orders.total_amount_usd) AS revenue_by_segment_usd
+                FROM semantic.orders AS orders
+                INNER JOIN semantic.customers AS customers
+                  ON orders.customer_id = customers.customer_id
+                WHERE orders.is_returned = false
+                GROUP BY customers.customer_segment
+                ORDER BY revenue_by_segment_usd DESC
+              columns_used:
+                - orders.customer_id
+                - orders.total_amount_usd
+                - orders.is_returned
+                - customers.customer_id
+                - customers.customer_segment
+
+      - name: revenue_by_product_category_usd
+        business_name: Revenue By Product Category USD
+        description: >-
+          Total revenue by product category in USD.
+          Calculated as the sum of line_revenue_usd grouped by category_name.
+        return_type: currency_usd
+        result_grain: one row per product category
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  product_categories.category_name,
+                  SUM(order_items.line_revenue_usd) AS revenue_by_category_usd
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                INNER JOIN semantic.products AS products
+                  ON order_items.product_id = products.product_id
+                INNER JOIN semantic.product_categories AS product_categories
+                  ON products.category_id = product_categories.category_id
+                WHERE orders.is_returned = false
+                GROUP BY product_categories.category_name
+                ORDER BY revenue_by_category_usd DESC
+              columns_used:
+                - order_items.order_id
+                - order_items.product_id
+                - order_items.line_revenue_usd
+                - orders.order_id
+                - orders.is_returned
+                - products.product_id
+                - products.category_id
+                - product_categories.category_id
+                - product_categories.category_name
+
+      - name: revenue_by_store_usd
+        business_name: Revenue By Store USD
+        description: >-
+          Total revenue by store in USD.
+          Calculated as the sum of total_amount_usd grouped by store_name.
+        return_type: currency_usd
+        result_grain: one row per store
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  stores.store_name,
+                  SUM(orders.total_amount_usd) AS revenue_by_store_usd
+                FROM semantic.orders AS orders
+                INNER JOIN semantic.stores AS stores
+                  ON orders.store_id = stores.store_id
+                WHERE orders.is_returned = false
+                GROUP BY stores.store_name
+                ORDER BY revenue_by_store_usd DESC
+              columns_used:
+                - orders.store_id
+                - orders.total_amount_usd
+                - orders.is_returned
+                - stores.store_id
+                - stores.store_name
+
+      - name: revenue_by_channel_usd
+        business_name: Revenue By Channel USD
+        description: >-
+          Total revenue by order channel in USD.
+          Calculated as the sum of total_amount_usd grouped by order_channel.
+        return_type: currency_usd
+        result_grain: one row per channel
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  orders.order_channel,
+                  SUM(orders.total_amount_usd) AS revenue_by_channel_usd
+                FROM semantic.orders AS orders
+                WHERE orders.is_returned = false
+                GROUP BY orders.order_channel
+                ORDER BY revenue_by_channel_usd DESC
+              columns_used:
+                - orders.order_channel
+                - orders.total_amount_usd
+                - orders.is_returned
+
+      - name: top_products_by_revenue
+        business_name: Top Products By Revenue
+        description: >-
+          Products ranked by total revenue in USD.
+          Calculated as the sum of line_revenue_usd grouped by product, with ranking.
+        return_type: currency_usd
+        result_grain: one row per product
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  products.product_name,
+                  SUM(order_items.line_revenue_usd) AS product_revenue_usd,
+                  RANK() OVER (ORDER BY SUM(order_items.line_revenue_usd) DESC) AS revenue_rank
+                FROM semantic.order_items AS order_items
+                INNER JOIN semantic.orders AS orders
+                  ON order_items.order_id = orders.order_id
+                INNER JOIN semantic.products AS products
+                  ON order_items.product_id = products.product_id
+                WHERE orders.is_returned = false
+                GROUP BY products.product_name
+                ORDER BY product_revenue_usd DESC
+              columns_used:
+                - order_items.order_id
+                - order_items.product_id
+                - order_items.line_revenue_usd
+                - orders.order_id
+                - orders.is_returned
+                - products.product_id
+                - products.product_name
+
+      - name: top_customers_by_revenue
+        business_name: Top Customers By Revenue
+        description: >-
+          Customers ranked by total revenue in USD.
+          Calculated as the sum of total_amount_usd grouped by customer, with ranking.
+        return_type: currency_usd
+        result_grain: one row per customer
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                  customers.customer_id,
+                  customers.first_name,
+                  customers.last_name,
+                  SUM(orders.total_amount_usd) AS customer_revenue_usd,
+                  RANK() OVER (ORDER BY SUM(orders.total_amount_usd) DESC) AS revenue_rank
+                FROM semantic.orders AS orders
+                INNER JOIN semantic.customers AS customers
+                  ON orders.customer_id = customers.customer_id
+                WHERE orders.is_returned = false
+                GROUP BY customers.customer_id, customers.first_name, customers.last_name
+                ORDER BY customer_revenue_usd DESC
+              columns_used:
+                - orders.customer_id
+                - orders.total_amount_usd
+                - orders.is_returned
+                - customers.customer_id
+                - customers.first_name
+                - customers.last_name
