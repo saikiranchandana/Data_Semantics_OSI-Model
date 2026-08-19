@@ -1,0 +1,91 @@
+{
+  "overall_validation_score": 91.67,
+  "accuracy_score": 95.0,
+  "efficiency_score": 85.0,
+  "completeness_score": 95.0,
+  "overall_status": "PASS WITH WARNINGS",
+  "completeness_assessment": [
+    {
+      "severity": "Medium",
+      "area": "Relationship Coverage",
+      "issue": "Metric 'revenue_by_product_category' references order_items table not present in glossary",
+      "recommendation": "Add order_items table to glossary or remove/update metric definition to use available tables"
+    },
+    {
+      "severity": "Low",
+      "area": "Documentation Coverage",
+      "issue": "Shipment table description is generic ('Contains schema metadata...') and does not match semantic model's detailed description",
+      "recommendation": "Update glossary shipment table description to match semantic model: 'Contains shipment tracking and logistics information...'"
+    },
+    {
+      "severity": "Low",
+      "area": "Documentation Coverage",
+      "issue": "Store table description is generic ('Contains schema metadata...') and does not match semantic model's detailed description",
+      "recommendation": "Update glossary store table description to match semantic model: 'Contains store location and profile information...'"
+    },
+    {
+      "severity": "Low",
+      "area": "Documentation Coverage",
+      "issue": "Supplier table description is generic ('Contains schema metadata...') and does not match semantic model's detailed description",
+      "recommendation": "Update glossary supplier table description to match semantic model: 'Contains supplier profile and qualification information...'"
+    }
+  ],
+  "accuracy_assessment": [
+    {
+      "severity": "Low",
+      "area": "Metadata/Technical Accuracy",
+      "issue": "Glossary shows timestamp type as 'TIMESTAMP(29,6)' while semantic model shows 'TIMESTAMP' without precision",
+      "recommendation": "Standardize timestamp type representation between glossary and semantic model"
+    },
+    {
+      "severity": "Low",
+      "area": "Business Definition Accuracy",
+      "issue": "Glossary describes customer.total_spend as 'Cumulative monetary amount the customer has spent' but does not include the critical warning about double-counting when joined to order_tbl",
+      "recommendation": "Add warning to glossary: 'Do not sum this field after joining to order_tbl as it will cause double counting. Use order_tbl.total for order-level revenue analysis.'"
+    },
+    {
+      "severity": "Low",
+      "area": "Naming Convention Consistency",
+      "issue": "Glossary uses 'INT4' for capacity field type while semantic model uses 'INTEGER'",
+      "recommendation": "Standardize integer type naming convention across both artifacts"
+    },
+    {
+      "severity": "Low",
+      "area": "Metadata/Technical Accuracy",
+      "issue": "Glossary shows PII flag 'Yes' for payment_method but semantic model does not explicitly mark it as PII",
+      "recommendation": "Align PII classification between artifacts or document rationale for difference"
+    }
+  ],
+  "efficiency_assessment": [
+    {
+      "severity": "Low",
+      "area": "Redundant Metadata",
+      "issue": "Multiple metrics calculate similar aggregations (e.g., average_order_value, revenue_per_customer, orders_per_customer all use similar CASE/division patterns)",
+      "recommendation": "Consider creating reusable calculation templates or CTEs for common ratio/average patterns"
+    },
+    {
+      "severity": "Low",
+      "area": "Duplicate Documentation",
+      "issue": "Three table descriptions in glossary use identical generic text: 'Contains schema metadata, system-level attributes...' (shipment, store, supplier)",
+      "recommendation": "Replace generic descriptions with table-specific business descriptions matching semantic model detail level"
+    },
+    {
+      "severity": "Medium",
+      "area": "Structural Efficiency",
+      "issue": "Multiple metrics (monthly_revenue, revenue_growth_mom, running_total_revenue) independently calculate monthly revenue aggregation",
+      "recommendation": "Refactor to use a shared monthly_revenue CTE that can be reused across time-based metrics"
+    },
+    {
+      "severity": "Low",
+      "area": "Reusability",
+      "issue": "Several 'top N' ranking metrics (top_customers_by_revenue, top_stores_by_revenue, top_suppliers_by_rating) use similar RANK() OVER patterns",
+      "recommendation": "Create a parameterized ranking template or view that accepts entity type and measure as parameters"
+    },
+    {
+      "severity": "Low",
+      "area": "Unnecessary Complexity",
+      "issue": "Multiple metrics include identical zero-division protection CASE statements",
+      "recommendation": "Consider using NULLIF in denominators (e.g., 'SUM(total) / NULLIF(COUNT(order_id), 0)') for cleaner, more maintainable code"
+    }
+  ]
+}
