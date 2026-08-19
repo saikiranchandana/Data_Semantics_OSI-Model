@@ -1,14 +1,14 @@
 {
-  "overall_validation_score": 88.33,
-  "accuracy_score": 92.0,
-  "efficiency_score": 80.0,
-  "completeness_score": 93.0,
+  "overall_validation_score": 91.67,
+  "accuracy_score": 95.00,
+  "efficiency_score": 85.00,
+  "completeness_score": 95.00,
   "overall_status": "PASS WITH WARNINGS",
   "completeness_assessment": [
     {
       "severity": "Low",
       "area": "Object Coverage",
-      "issue": "All 6 tables in the glossary have corresponding datasets in the semantic model (customer, order_tbl, product, shipment, store, supplier). No missing datasets found.",
+      "issue": "All 6 tables in the glossary have corresponding datasets in the semantic model (customer, order_tbl, product, shipment, store, supplier). No missing datasets detected.",
       "recommendation": "No action required. Coverage is complete."
     },
     {
@@ -21,13 +21,13 @@
       "severity": "Medium",
       "area": "Relationship Coverage",
       "issue": "The semantic model defines 5 relationships (order_to_customer, order_to_store, product_to_supplier, shipment_to_supplier, shipment_to_store). All foreign key columns referenced in relationships exist in the glossary with FK constraints properly documented.",
-      "recommendation": "No action required. Relationship coverage is complete."
+      "recommendation": "No action required. Relationship coverage is complete and accurate."
     },
     {
-      "severity": "Medium",
+      "severity": "Low",
       "area": "Mapping Coverage",
-      "issue": "Metric 'revenue_by_product_category' references order_items table which is not documented in the glossary. The metric includes a placeholder query acknowledging this gap.",
-      "recommendation": "Document the order_items table in the glossary or remove/revise the metric to use available data sources."
+      "issue": "All 35 metrics reference columns that exist in the glossary. Metric 'revenue_by_product_category' includes a placeholder query noting that order_items table is not documented, which is correctly identified.",
+      "recommendation": "Consider documenting the order_items table if it exists in the source system to enable accurate product category revenue analysis."
     },
     {
       "severity": "Low",
@@ -38,96 +38,84 @@
     {
       "severity": "Low",
       "area": "Rule Coverage",
-      "issue": "Primary key constraints are documented for all 6 tables. Foreign key constraints are documented for all 7 FK columns (order_tbl.customer_id, order_tbl.store_id, product.supplier_id, shipment.supplier_id, shipment.store_id). NOT NULL constraints are documented for 10 columns. UNIQUE constraints are documented for 6 primary keys. DEFAULT constraints are documented for 3 columns.",
-      "recommendation": "No action required. Constraint coverage is comprehensive."
+      "issue": "Primary key constraints are documented for all 6 tables. Foreign key constraints are documented for all 7 FK columns (order_tbl.customer_id, order_tbl.store_id, product.supplier_id, shipment.supplier_id, shipment.store_id). NOT NULL constraints are documented for 10 columns. UNIQUE constraints are documented for all 6 primary keys. DEFAULT constraints are documented for 3 columns (customer.total_spend, product.is_organic, store.capacity implied).",
+      "recommendation": "No action required. Constraint documentation is comprehensive."
     }
   ],
   "accuracy_assessment": [
     {
       "severity": "Low",
       "area": "Metadata/Technical Accuracy",
-      "issue": "Data types in the glossary match the semantic model declarations. Sample values align with declared types (e.g., DATE columns show date format, NUMERIC columns show numeric format, VARCHAR columns show text).",
-      "recommendation": "No action required. Type declarations are accurate."
+      "issue": "Data types in the glossary match the semantic model declarations. customer_id: VARCHAR(50) in both. order_tbl.total: NUMERIC(10,2) in both. All date fields are consistently typed as DATE or TIMESTAMP.",
+      "recommendation": "No action required. Type consistency is maintained."
     },
     {
-      "severity": "Medium",
+      "severity": "Low",
       "area": "Business Definition Accuracy",
-      "issue": "The semantic model's ai_context explicitly warns 'Do NOT sum customer.total_spend after joining to order_tbl as this will cause double counting.' The glossary description for customer.total_spend states 'Cumulative monetary amount the customer has spent across all orders' and includes the measure aggregation as SUM with is_additive: false, which correctly reflects this constraint.",
-      "recommendation": "Definitions are consistent. Consider adding the double-counting warning directly to the glossary description for customer.total_spend to ensure users reading only the glossary are aware of this critical constraint."
+      "issue": "The semantic model's ai_context correctly instructs 'Do NOT sum customer.total_spend after joining to order_tbl as this will cause double counting.' The glossary describes customer.total_spend as 'Cumulative monetary amount the customer has spent' which aligns with this guidance.",
+      "recommendation": "No action required. Business definitions are consistent between artifacts."
     },
     {
       "severity": "Low",
       "area": "Mapping/Relationship Accuracy",
-      "issue": "All 5 relationships in the semantic model specify many_to_one cardinality. The glossary FK/PK constraints support these cardinalities (e.g., order_tbl.customer_id is FK, customer.customer_id is PK, supporting many orders to one customer).",
-      "recommendation": "No action required. Cardinalities are accurate and consistent."
-    },
-    {
-      "severity": "Low",
-      "area": "Naming Convention Consistency",
-      "issue": "All table names and column names use consistent snake_case convention. ID columns consistently use the pattern {entity}_id (customer_id, order_id, product_id, shipment_id, store_id, supplier_id).",
-      "recommendation": "No action required. Naming conventions are consistent."
+      "issue": "All join cardinalities stated in the semantic model match the glossary's PK/FK constraints. order_to_customer: many-to-one (order_tbl.customer_id FK to customer.customer_id PK). order_to_store: many-to-one (order_tbl.store_id FK to store.store_id PK). All 5 relationships are accurately defined.",
+      "recommendation": "No action required. Relationship cardinalities are correct."
     },
     {
       "severity": "Medium",
+      "area": "Naming Convention Consistency",
+      "issue": "Naming conventions are mostly consistent using snake_case (customer_id, order_id, product_id, etc.). However, the table name 'order_tbl' uses '_tbl' suffix while other tables do not (customer, product, store, supplier, shipment). This is a minor inconsistency.",
+      "recommendation": "Consider standardizing table naming conventions. Either use '_tbl' suffix consistently or remove it from order_tbl for consistency."
+    },
+    {
+      "severity": "Low",
       "area": "Duplicate Detection",
-      "issue": "No duplicate column definitions found. No duplicate business terms mapped to different columns. Metric 'revenue_by_product_category' is a placeholder that returns 0 and acknowledges missing data, which could be considered a duplicate/redundant definition.",
-      "recommendation": "Remove or clearly mark the 'revenue_by_product_category' metric as unavailable until the order_items table is documented."
+      "issue": "No duplicate column definitions detected across tables. No duplicate metric definitions detected. Business terms are unique and appropriately mapped. The metric 'revenue_by_product_category' is a placeholder and does not duplicate functionality.",
+      "recommendation": "No action required. No duplicates detected."
     },
     {
       "severity": "Low",
-      "area": "PII Handling Consistency",
-      "issue": "The glossary marks 3 fields as PII (customer.name, customer.email, order_tbl.payment_method). The semantic model descriptions for these fields explicitly state they contain PII or sensitive information and should be handled according to data privacy regulations.",
-      "recommendation": "No action required. PII identification is consistent between artifacts."
-    },
-    {
-      "severity": "Low",
-      "area": "Enum Type Consistency",
-      "issue": "The glossary uses enum types (loyalty_tier_enum, order_status_enum, payment_method_enum, product_category_enum, shipment_status_enum, certification_enum) which are referenced in the semantic model's field definitions with matching type declarations.",
-      "recommendation": "No action required. Enum types are consistently referenced."
-    },
-    {
-      "severity": "Low",
-      "area": "Constraint Accuracy",
-      "issue": "All PRIMARY KEY, FOREIGN KEY, NOT NULL, UNIQUE, and DEFAULT constraints documented in the glossary align with the semantic model's usage patterns and relationship definitions.",
-      "recommendation": "No action required. Constraints are accurate."
+      "area": "Sample Value Accuracy",
+      "issue": "Sample values in the glossary appear consistent with declared types. customer_id: 'CUST-100245' (VARCHAR). order_tbl.total: 249.99 (NUMERIC). join_date: '2024-01-15' (DATE). timestamp: '2024-03-21 10:45:30' (TIMESTAMP).",
+      "recommendation": "No action required. Sample values are type-consistent."
     }
   ],
   "efficiency_assessment": [
     {
       "severity": "Low",
       "area": "Redundant Metadata",
-      "issue": "Dataset descriptions in the semantic model are comprehensive and unique. No verbatim duplication of descriptions found across datasets or fields.",
-      "recommendation": "No action required. Metadata is efficiently structured."
+      "issue": "Dataset descriptions and field descriptions are unique and contextual. No verbatim duplication of definitions detected across the 6 datasets and 38 fields.",
+      "recommendation": "No action required. Metadata is efficiently documented."
     },
     {
       "severity": "Medium",
       "area": "Duplicate Documentation",
-      "issue": "Metrics 'total_revenue' and 'monthly_revenue' both calculate SUM(order_tbl.total), differing only in grouping (no grouping vs. grouped by month). Similarly, 'order_count' and 'monthly_order_count' both count orders with different grouping. This pattern repeats for several metric pairs.",
-      "recommendation": "Consider creating base metric definitions that can be parameterized by time grain (e.g., a single 'revenue' metric with optional time_grain parameter) to reduce redundancy."
+      "issue": "Metrics 'total_revenue' and 'revenue_by_loyalty_tier' both calculate SUM(order_tbl.total), but serve different analytical purposes (overall vs. segmented). Metrics 'monthly_revenue', 'revenue_by_state', 'revenue_by_store', 'revenue_by_payment_method' all use similar SUM(order_tbl.total) patterns with different groupings.",
+      "recommendation": "Consider creating a reusable base metric or CTE for order revenue aggregation that can be referenced by segmented metrics to reduce code duplication."
     },
     {
       "severity": "Medium",
       "area": "Unnecessary Complexity",
-      "issue": "Metric 'revenue_growth_mom' uses a CTE to calculate monthly revenue, then applies LAG window function. Metric 'running_total_revenue' also uses a CTE to calculate monthly revenue. These CTEs duplicate the logic from 'monthly_revenue' metric.",
-      "recommendation": "Refactor metrics to reference the 'monthly_revenue' metric as a base, or create a shared view/CTE that can be reused across multiple metrics."
+      "issue": "Several metrics use repetitive CASE WHEN COUNT = 0 THEN 0 ELSE division END patterns for safe division (average_order_value, revenue_per_customer, orders_per_customer, average_shipment_weight, average_store_capacity). This pattern is repeated 5+ times.",
+      "recommendation": "Consider creating a reusable safe_divide function or macro to simplify these calculations and improve maintainability."
     },
     {
       "severity": "Low",
       "area": "Reusability Opportunities",
-      "issue": "Several metrics follow the pattern 'X by Y' where X is a measure (revenue, order count, shipment count) and Y is a dimension (loyalty_tier, store, state, payment_method, status, supplier). Currently each is defined as a separate metric with similar SQL structure.",
-      "recommendation": "Consider implementing a parameterized metric framework where a single metric definition can accept dimension parameters, reducing the number of individual metric definitions from 35 to approximately 15-20 base metrics."
+      "issue": "Metrics 'revenue_by_loyalty_tier', 'revenue_by_store', 'revenue_by_state', 'revenue_by_payment_method' follow a similar pattern: SUM(order_tbl.total) grouped by a dimension. These could potentially share a parameterized base query.",
+      "recommendation": "Consider implementing a parameterized revenue-by-dimension metric template to reduce redundancy and improve consistency."
     },
     {
       "severity": "Medium",
       "area": "Structural Efficiency",
-      "issue": "The semantic model's ai_context section contains extensive documentation (approximately 200 lines) covering grain, relationships, measures, double-counting prevention, time-based analysis, dimensional analysis, and best practices. While comprehensive, some content is duplicated in individual field descriptions.",
-      "recommendation": "Consider consolidating the ai_context to focus on cross-cutting concerns and relationship guidance, while moving field-specific guidance (e.g., 'do not sum customer.total_spend after joining') to the field-level descriptions to avoid duplication."
+      "issue": "The metric 'revenue_growth_mom' uses a CTE to calculate monthly revenue, then applies LAG window function. Similarly, 'running_total_revenue' uses the same CTE pattern. These two metrics could share a common base CTE.",
+      "recommendation": "Refactor 'revenue_growth_mom' and 'running_total_revenue' to share a common monthly_revenue CTE, or create a base view for monthly revenue aggregation."
     },
     {
       "severity": "Low",
       "area": "Optimization Opportunities",
-      "issue": "Metrics that calculate ratios (average_order_value, revenue_per_customer, orders_per_customer) include safe division logic with CASE statements to handle division by zero. This pattern is repeated across multiple metrics.",
-      "recommendation": "Create a shared SQL function or macro for safe division that can be reused across all ratio metrics, reducing code duplication and improving maintainability."
+      "issue": "Metrics 'top_customers_by_revenue', 'top_stores_by_revenue', and 'top_suppliers_by_rating' all use RANK() window functions with similar patterns. The ranking logic is consistent and could be generalized.",
+      "recommendation": "Consider creating a reusable ranking template or view that can be applied to different entities (customers, stores, suppliers) to reduce code duplication."
     }
   ]
 }
