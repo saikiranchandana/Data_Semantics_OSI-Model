@@ -1,0 +1,1109 @@
+version: "1.0"
+
+semantic_model:
+  - name: ecommerce_retail_analytics
+    description: >-
+      Comprehensive semantic model for e-commerce retail analytics covering customers, orders, products, 
+      shipments, stores, and suppliers. This model supports analytical queries across customer behavior, 
+      order fulfillment, product performance, supply chain operations, and store performance.
+    
+    ai_context:
+      instructions: >-
+        This semantic model represents an e-commerce retail analytics domain with six core datasets:
+        
+        DATASET GRAIN:
+        - customers: One row per customer (grain: customer_id)
+        - order_tbl: One row per order (grain: order_id)
+        - product: One row per product (grain: product_id)
+        - shipment: One row per shipment (grain: shipment_id)
+        - store: One row per store location (grain: store_id)
+        - supplier: One row per supplier (grain: supplier_id)
+        
+        RELATIONSHIP STRUCTURE:
+        - Customers place Orders (customer → order_tbl via customer_id)
+        - Orders are fulfilled by Stores (order_tbl → store via store_id)
+        - Products are supplied by Suppliers (product → supplier via supplier_id)
+        - Shipments come from Suppliers to Stores (shipment → supplier via supplier_id, shipment → store via store_id)
+        
+        METRIC GUIDANCE:
+        - For customer-level revenue analysis, use customers.total_spend
+        - For order-level revenue analysis, use order_tbl.total
+        - For product pricing analysis, use product.price
+        - For shipment weight analysis, use shipment.weight
+        - For supplier performance analysis, use supplier.rating
+        
+        JOIN GUIDANCE:
+        - To analyze orders by customer: JOIN order_tbl to customers using customer_id
+        - To analyze orders by store: JOIN order_tbl to store using store_id
+        - To analyze products by supplier: JOIN product to supplier using supplier_id
+        - To analyze shipments by supplier: JOIN shipment to supplier using supplier_id
+        - To analyze shipments by store: JOIN shipment to store using store_id
+        
+        DOUBLE-COUNTING PREVENTION:
+        - Do NOT sum order_tbl.total after joining order_tbl to customers without proper aggregation
+        - Do NOT sum customers.total_spend after joining customers to order_tbl without proper aggregation
+        - When analyzing customer metrics, aggregate at customer level first
+        - When analyzing order metrics, aggregate at order level first
+        
+        TIME ANALYSIS:
+        - Use customers.join_date for customer acquisition and cohort analysis
+        - Use order_tbl.timestamp for order transaction time analysis
+        - Use shipment.dispatch_date for shipment dispatch analysis
+        - Use shipment.arrival_date for shipment arrival and delivery analysis
+        - Use store.open_date for store operational timeline analysis
+        
+        CATEGORICAL DIMENSIONS:
+        - Customer segmentation: customers.loyalty_tier (Bronze, Silver, Gold, Platinum)
+        - Order status: order_tbl.status (Pending, Completed, Cancelled, Refunded)
+        - Payment method: order_tbl.payment_method (Credit Card, Debit Card, PayPal, Bank Transfer)
+        - Product category: product.category (Beverages, Snacks, Dairy, Bakery, Produce)
+        - Shipment status: shipment.status (Pending, In Transit, Delivered, Delayed)
+        - Supplier certification: supplier.certification (Organic, Fair Trade, ISO 9001, None)
+        
+        BOOLEAN DIMENSIONS:
+        - product.is_organic: Filter for organic vs non-organic products
+        
+        GEOGRAPHIC DIMENSIONS:
+        - Store location: store.city, store.state
+        - Product origin: product.origin
+        - Supplier location: supplier.country
+        
+        QUERY RESTRICTIONS:
+        - customers.name and customers.email contain PII and are redacted in samples
+        - order_tbl.payment_method contains PII
+        - Always respect PII handling requirements in production queries
+    
+    datasets:
+      - name: customers
+        business_name: Customers
+        description: >-
+          Contains customer master data including customer identifiers, personal information, 
+          loyalty tier classification, enrollment dates, and cumulative spending. 
+          Grain: One row per customer.
+        source: ecom_bronze.customer
+        primary_key:
+          - customer_id
+        fields:
+          - name: customer_id
+            business_name: Customer Identifier
+            description: >-
+              Unique identifier for a customer. Primary key for the customers dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_time: false
+          
+          - name: name
+            business_name: Name
+            description: >-
+              Full name of the customer. Contains PII.
+            sql_type: VARCHAR(200)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: email
+            business_name: Email
+            description: >-
+              Email address used to contact the customer. Contains PII.
+            sql_type: VARCHAR(255)
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: loyalty_tier
+            business_name: Loyalty Tier
+            description: >-
+              Indicates the loyalty tier level assigned to the customer. 
+              Used for customer segmentation and targeted marketing analysis.
+            sql_type: ecom_bronze.loyalty_tier_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: join_date
+            business_name: Join Date
+            description: >-
+              Date when the customer enrolled or first registered. 
+              Used for customer acquisition analysis and cohort analysis.
+            sql_type: DATE
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: total_spend
+            business_name: Total Spend
+            description: >-
+              Cumulative monetary amount the customer has spent. 
+              Represents lifetime customer value at the customer grain.
+            sql_type: NUMERIC(12,2)
+            constraints:
+              - DEFAULT 0
+      
+      - name: order_tbl
+        business_name: Orders
+        description: >-
+          Contains order transaction data including order identifiers, timestamps, total amounts, 
+          order status, payment methods, and references to customers and stores. 
+          Grain: One row per order.
+        source: ecom_bronze.order_tbl
+        primary_key:
+          - order_id
+        fields:
+          - name: order_id
+            business_name: Order Identifier
+            description: >-
+              Unique identifier for a customer order. Primary key for the orders dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_time: false
+          
+          - name: timestamp
+            business_name: Timestamp
+            description: >-
+              Timestamp recording when the order was placed. 
+              Used for time-series analysis of order transactions.
+            sql_type: TIMESTAMP(29,6)
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: total
+            business_name: Total
+            description: >-
+              Monetary amount representing the total value of the order. 
+              Primary measure for order-level revenue analysis.
+            sql_type: NUMERIC(10,2)
+            constraints: []
+          
+          - name: status
+            business_name: Status
+            description: >-
+              Indicates the current status of the order. 
+              Used for order fulfillment and operational analysis.
+            sql_type: ecom_bronze.order_status_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: payment_method
+            business_name: Payment Method
+            description: >-
+              Indicates the payment method used for the order. Contains PII. 
+              Used for payment channel analysis.
+            sql_type: ecom_bronze.payment_method_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: customer_id
+            business_name: Customer Reference
+            description: >-
+              References the related customer record associated with the order. 
+              Foreign key to customers.customer_id.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+            dimension:
+              is_time: false
+          
+          - name: store_id
+            business_name: Store Reference
+            description: >-
+              References the store where the order was fulfilled. 
+              Foreign key to store.store_id.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+            dimension:
+              is_time: false
+      
+      - name: product
+        business_name: Products
+        description: >-
+          Contains product master data including product identifiers, names, categories, 
+          pricing, origin, organic certification status, and supplier references. 
+          Grain: One row per product.
+        source: ecom_bronze.product
+        primary_key:
+          - product_id
+        fields:
+          - name: product_id
+            business_name: Product Identifier
+            description: >-
+              Unique identifier for a product. Primary key for the products dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_time: false
+          
+          - name: name
+            business_name: Name
+            description: >-
+              Name of the product as presented to customers.
+            sql_type: VARCHAR(200)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: category
+            business_name: Category
+            description: >-
+              Category grouping used to classify the product. 
+              Used for product category analysis and merchandising.
+            sql_type: ecom_bronze.product_category_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: price
+            business_name: Price
+            description: >-
+              Monetary price at which the product is sold. 
+              Used for pricing analysis and product profitability.
+            sql_type: NUMERIC(10,2)
+            constraints: []
+          
+          - name: origin
+            business_name: Origin
+            description: >-
+              Country or region where the product originates. 
+              Used for geographic sourcing analysis.
+            sql_type: VARCHAR(100)
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: is_organic
+            business_name: Is Organic
+            description: >-
+              Indicates whether the product is certified organic. 
+              Used for organic vs non-organic product analysis.
+            sql_type: BOOL
+            constraints:
+              - DEFAULT true
+            dimension:
+              is_time: false
+          
+          - name: supplier_id
+            business_name: Supplier Reference
+            description: >-
+              References the supplier that provides the product. 
+              Foreign key to supplier.supplier_id.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+            dimension:
+              is_time: false
+      
+      - name: shipment
+        business_name: Shipments
+        description: >-
+          Contains shipment tracking data including shipment identifiers, dispatch dates, 
+          arrival dates, status, weight, and references to suppliers and stores. 
+          Grain: One row per shipment.
+        source: ecom_bronze.shipment
+        primary_key:
+          - shipment_id
+        fields:
+          - name: shipment_id
+            business_name: Shipment Identifier
+            description: >-
+              Unique identifier for a shipment. Primary key for the shipments dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_time: false
+          
+          - name: dispatch_date
+            business_name: Dispatch Date
+            description: >-
+              Date when the shipment was dispatched from the origin location. 
+              Used for shipment dispatch timing analysis.
+            sql_type: DATE
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: arrival_date
+            business_name: Arrival Date
+            description: >-
+              Date when the shipment arrived at the destination. 
+              Used for shipment delivery timing and performance analysis.
+            sql_type: DATE
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: status
+            business_name: Status
+            description: >-
+              Indicates the current status of the shipment. 
+              Used for shipment tracking and operational analysis.
+            sql_type: ecom_bronze.shipment_status_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: weight
+            business_name: Weight
+            description: >-
+              Total weight of the shipment. 
+              Used for logistics and capacity analysis.
+            sql_type: NUMERIC(10,2)
+            constraints: []
+          
+          - name: supplier_id
+            business_name: Supplier Reference
+            description: >-
+              References the supplier responsible for the shipment. 
+              Foreign key to supplier.supplier_id.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+            dimension:
+              is_time: false
+          
+          - name: store_id
+            business_name: Store Reference
+            description: >-
+              References the store receiving the shipment. 
+              Foreign key to store.store_id.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+            dimension:
+              is_time: false
+      
+      - name: store
+        business_name: Stores
+        description: >-
+          Contains store location master data including store identifiers, names, 
+          geographic location (city, state), opening dates, and operational capacity. 
+          Grain: One row per store location.
+        source: ecom_bronze.store
+        primary_key:
+          - store_id
+        fields:
+          - name: store_id
+            business_name: Store Identifier
+            description: >-
+              Unique identifier for a store location. Primary key for the stores dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_time: false
+          
+          - name: name
+            business_name: Name
+            description: >-
+              Name of the store location.
+            sql_type: VARCHAR(200)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: city
+            business_name: City
+            description: >-
+              City where the store is located. 
+              Used for geographic store performance analysis.
+            sql_type: VARCHAR(100)
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: state
+            business_name: State
+            description: >-
+              State or region where the store is located. 
+              Used for regional store performance analysis.
+            sql_type: VARCHAR(100)
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: open_date
+            business_name: Open Date
+            description: >-
+              Date when the store began operations. 
+              Used for store maturity and lifecycle analysis.
+            sql_type: DATE
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: capacity
+            business_name: Capacity
+            description: >-
+              Indicates the operational or customer capacity of the store. 
+              Used for capacity planning and utilization analysis.
+            sql_type: INT4
+            constraints: []
+      
+      - name: supplier
+        business_name: Suppliers
+        description: >-
+          Contains supplier master data including supplier identifiers, names, 
+          country location, certification status, and performance ratings. 
+          Grain: One row per supplier.
+        source: ecom_bronze.supplier
+        primary_key:
+          - supplier_id
+        fields:
+          - name: supplier_id
+            business_name: Supplier Identifier
+            description: >-
+              Unique identifier for a supplier. Primary key for the suppliers dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_time: false
+          
+          - name: name
+            business_name: Name
+            description: >-
+              Name of the supplier organization.
+            sql_type: VARCHAR(200)
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: false
+          
+          - name: country
+            business_name: Country
+            description: >-
+              Country where the supplier is based. 
+              Used for geographic supplier analysis and sourcing strategy.
+            sql_type: VARCHAR(100)
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: certification
+            business_name: Certification
+            description: >-
+              Indicates the certification status or type held by the supplier. 
+              Used for supplier quality and compliance analysis.
+            sql_type: ecom_bronze.certification_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: rating
+            business_name: Rating
+            description: >-
+              Numeric rating representing the supplier's performance or quality. 
+              Used for supplier performance evaluation.
+            sql_type: NUMERIC(2,1)
+            constraints: []
+    
+    relationships:
+      - name: orders_to_customers
+        left_dataset: order_tbl
+        right_dataset: customers
+        relationship_type: many_to_one
+        join:
+          left:
+            - customer_id
+          right:
+            - customer_id
+        join_type: many_to_one
+        resolution: >-
+          Each order is placed by exactly one customer. Multiple orders can be placed by the same customer.
+          Join order_tbl to customers using customer_id to analyze orders by customer attributes such as 
+          loyalty tier, join date, and total spend.
+      
+      - name: orders_to_stores
+        left_dataset: order_tbl
+        right_dataset: store
+        relationship_type: many_to_one
+        join:
+          left:
+            - store_id
+          right:
+            - store_id
+        join_type: many_to_one
+        resolution: >-
+          Each order is fulfilled by exactly one store. Multiple orders can be fulfilled by the same store.
+          Join order_tbl to store using store_id to analyze orders by store location, city, state, 
+          and store capacity.
+      
+      - name: products_to_suppliers
+        left_dataset: product
+        right_dataset: supplier
+        relationship_type: many_to_one
+        join:
+          left:
+            - supplier_id
+          right:
+            - supplier_id
+        join_type: many_to_one
+        resolution: >-
+          Each product is supplied by exactly one supplier. Multiple products can be supplied by the same supplier.
+          Join product to supplier using supplier_id to analyze products by supplier attributes such as 
+          country, certification, and rating.
+      
+      - name: shipments_to_suppliers
+        left_dataset: shipment
+        right_dataset: supplier
+        relationship_type: many_to_one
+        join:
+          left:
+            - supplier_id
+          right:
+            - supplier_id
+        join_type: many_to_one
+        resolution: >-
+          Each shipment originates from exactly one supplier. Multiple shipments can come from the same supplier.
+          Join shipment to supplier using supplier_id to analyze shipments by supplier attributes such as 
+          country, certification, and rating.
+      
+      - name: shipments_to_stores
+        left_dataset: shipment
+        right_dataset: store
+        relationship_type: many_to_one
+        join:
+          left:
+            - store_id
+          right:
+            - store_id
+        join_type: many_to_one
+        resolution: >-
+          Each shipment is delivered to exactly one store. Multiple shipments can be delivered to the same store.
+          Join shipment to store using store_id to analyze shipments by store location, city, state, 
+          and store capacity.
+    
+    metrics:
+      - name: total_order_revenue
+        business_name: Total Order Revenue
+        description: >-
+          Sum of all order totals. Represents the total revenue generated from all orders.
+          Calculated at order grain.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(order_tbl.total) AS total_order_revenue
+                FROM ecom_bronze.order_tbl AS order_tbl
+              columns_used:
+                - order_tbl.total
+      
+      - name: total_customer_lifetime_value
+        business_name: Total Customer Lifetime Value
+        description: >-
+          Sum of cumulative customer spending across all customers. 
+          Represents the total lifetime value of the customer base.
+          Calculated at customer grain.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(customers.total_spend) AS total_customer_lifetime_value
+                FROM ecom_bronze.customer AS customers
+              columns_used:
+                - customers.total_spend
+      
+      - name: order_count
+        business_name: Order Count
+        description: >-
+          Total number of orders. Used for order volume analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(order_tbl.order_id) AS order_count
+                FROM ecom_bronze.order_tbl AS order_tbl
+              columns_used:
+                - order_tbl.order_id
+      
+      - name: customer_count
+        business_name: Customer Count
+        description: >-
+          Total number of unique customers. Used for customer base size analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(customers.customer_id) AS customer_count
+                FROM ecom_bronze.customer AS customers
+              columns_used:
+                - customers.customer_id
+      
+      - name: product_count
+        business_name: Product Count
+        description: >-
+          Total number of unique products. Used for product catalog size analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(product.product_id) AS product_count
+                FROM ecom_bronze.product AS product
+              columns_used:
+                - product.product_id
+      
+      - name: average_order_value
+        business_name: Average Order Value
+        description: >-
+          Average monetary value per order. Calculated as total order revenue divided by order count.
+          Used for order size and pricing strategy analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(order_tbl.order_id) = 0 THEN 0
+                        ELSE SUM(order_tbl.total) / COUNT(order_tbl.order_id)
+                    END AS average_order_value
+                FROM ecom_bronze.order_tbl AS order_tbl
+              columns_used:
+                - order_tbl.total
+                - order_tbl.order_id
+      
+      - name: average_customer_lifetime_value
+        business_name: Average Customer Lifetime Value
+        description: >-
+          Average cumulative spending per customer. Calculated as total customer lifetime value 
+          divided by customer count. Used for customer value analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(customers.customer_id) = 0 THEN 0
+                        ELSE SUM(customers.total_spend) / COUNT(customers.customer_id)
+                    END AS average_customer_lifetime_value
+                FROM ecom_bronze.customer AS customers
+              columns_used:
+                - customers.total_spend
+                - customers.customer_id
+      
+      - name: orders_per_customer
+        business_name: Orders Per Customer
+        description: >-
+          Average number of orders per customer. Calculated as total order count divided by customer count.
+          Used for customer engagement and purchase frequency analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT customers.customer_id) = 0 THEN 0
+                        ELSE COUNT(order_tbl.order_id)::NUMERIC / COUNT(DISTINCT customers.customer_id)
+                    END AS orders_per_customer
+                FROM ecom_bronze.order_tbl AS order_tbl
+                INNER JOIN ecom_bronze.customer AS customers
+                    ON order_tbl.customer_id = customers.customer_id
+              columns_used:
+                - order_tbl.order_id
+                - order_tbl.customer_id
+                - customers.customer_id
+      
+      - name: completed_order_count
+        business_name: Completed Order Count
+        description: >-
+          Total number of orders with status 'Completed'. 
+          Used for order fulfillment success analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(order_tbl.order_id) AS completed_order_count
+                FROM ecom_bronze.order_tbl AS order_tbl
+                WHERE order_tbl.status = 'Completed'
+              columns_used:
+                - order_tbl.order_id
+                - order_tbl.status
+      
+      - name: completed_order_revenue
+        business_name: Completed Order Revenue
+        description: >-
+          Sum of order totals for orders with status 'Completed'. 
+          Represents revenue from successfully completed orders.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(order_tbl.total) AS completed_order_revenue
+                FROM ecom_bronze.order_tbl AS order_tbl
+                WHERE order_tbl.status = 'Completed'
+              columns_used:
+                - order_tbl.total
+                - order_tbl.status
+      
+      - name: shipment_count
+        business_name: Shipment Count
+        description: >-
+          Total number of shipments. Used for shipment volume analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(shipment.shipment_id) AS shipment_count
+                FROM ecom_bronze.shipment AS shipment
+              columns_used:
+                - shipment.shipment_id
+      
+      - name: total_shipment_weight
+        business_name: Total Shipment Weight
+        description: >-
+          Sum of all shipment weights. Used for logistics capacity and freight analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(shipment.weight) AS total_shipment_weight
+                FROM ecom_bronze.shipment AS shipment
+              columns_used:
+                - shipment.weight
+      
+      - name: average_shipment_weight
+        business_name: Average Shipment Weight
+        description: >-
+          Average weight per shipment. Calculated as total shipment weight divided by shipment count.
+          Used for shipment size and logistics planning analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(shipment.shipment_id) = 0 THEN 0
+                        ELSE SUM(shipment.weight) / COUNT(shipment.shipment_id)
+                    END AS average_shipment_weight
+                FROM ecom_bronze.shipment AS shipment
+              columns_used:
+                - shipment.weight
+                - shipment.shipment_id
+      
+      - name: delivered_shipment_count
+        business_name: Delivered Shipment Count
+        description: >-
+          Total number of shipments with status 'Delivered'. 
+          Used for shipment delivery success analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(shipment.shipment_id) AS delivered_shipment_count
+                FROM ecom_bronze.shipment AS shipment
+                WHERE shipment.status = 'Delivered'
+              columns_used:
+                - shipment.shipment_id
+                - shipment.status
+      
+      - name: average_delivery_time_days
+        business_name: Average Delivery Time (Days)
+        description: >-
+          Average number of days between dispatch date and arrival date for all shipments.
+          Used for shipment delivery performance analysis. Only includes shipments with both dates.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(shipment.arrival_date - shipment.dispatch_date) AS average_delivery_time_days
+                FROM ecom_bronze.shipment AS shipment
+                WHERE shipment.dispatch_date IS NOT NULL
+                  AND shipment.arrival_date IS NOT NULL
+              columns_used:
+                - shipment.dispatch_date
+                - shipment.arrival_date
+      
+      - name: average_product_price
+        business_name: Average Product Price
+        description: >-
+          Average price across all products. Used for product pricing analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(product.price) AS average_product_price
+                FROM ecom_bronze.product AS product
+              columns_used:
+                - product.price
+      
+      - name: organic_product_count
+        business_name: Organic Product Count
+        description: >-
+          Total number of products certified as organic (is_organic = true). 
+          Used for organic product catalog analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(product.product_id) AS organic_product_count
+                FROM ecom_bronze.product AS product
+                WHERE product.is_organic = true
+              columns_used:
+                - product.product_id
+                - product.is_organic
+      
+      - name: average_supplier_rating
+        business_name: Average Supplier Rating
+        description: >-
+          Average performance rating across all suppliers. 
+          Used for overall supplier quality analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(supplier.rating) AS average_supplier_rating
+                FROM ecom_bronze.supplier AS supplier
+              columns_used:
+                - supplier.rating
+      
+      - name: store_count
+        business_name: Store Count
+        description: >-
+          Total number of store locations. Used for store network size analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(store.store_id) AS store_count
+                FROM ecom_bronze.store AS store
+              columns_used:
+                - store.store_id
+      
+      - name: total_store_capacity
+        business_name: Total Store Capacity
+        description: >-
+          Sum of capacity across all stores. Used for total network capacity analysis.
+        return_type: INTEGER
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(store.capacity) AS total_store_capacity
+                FROM ecom_bronze.store AS store
+              columns_used:
+                - store.capacity
+      
+      - name: average_store_capacity
+        business_name: Average Store Capacity
+        description: >-
+          Average capacity per store. Used for store size and capacity planning analysis.
+        return_type: NUMERIC
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(store.capacity) AS average_store_capacity
+                FROM ecom_bronze.store AS store
+              columns_used:
+                - store.capacity
+      
+      - name: revenue_by_loyalty_tier
+        business_name: Revenue by Loyalty Tier
+        description: >-
+          Total order revenue grouped by customer loyalty tier. 
+          Used for customer segmentation and loyalty program analysis.
+        return_type: NUMERIC
+        result_grain: one row per loyalty tier
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    customers.loyalty_tier,
+                    SUM(order_tbl.total) AS revenue_by_loyalty_tier
+                FROM ecom_bronze.order_tbl AS order_tbl
+                INNER JOIN ecom_bronze.customer AS customers
+                    ON order_tbl.customer_id = customers.customer_id
+                GROUP BY customers.loyalty_tier
+              columns_used:
+                - order_tbl.total
+                - order_tbl.customer_id
+                - customers.customer_id
+                - customers.loyalty_tier
+      
+      - name: revenue_by_product_category
+        business_name: Revenue by Product Category
+        description: >-
+          Total order revenue grouped by product category. 
+          Requires joining orders to products via order items (not available in current glossary).
+          This metric is a placeholder and requires order_items dataset to be implemented.
+        return_type: NUMERIC
+        result_grain: one row per product category
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    product.category,
+                    COUNT(*) AS placeholder_count
+                FROM ecom_bronze.product AS product
+                GROUP BY product.category
+              columns_used:
+                - product.category
+      
+      - name: revenue_by_store
+        business_name: Revenue by Store
+        description: >-
+          Total order revenue grouped by store. 
+          Used for store performance and geographic revenue analysis.
+        return_type: NUMERIC
+        result_grain: one row per store
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    store.store_id,
+                    store.name,
+                    SUM(order_tbl.total) AS revenue_by_store
+                FROM ecom_bronze.order_tbl AS order_tbl
+                INNER JOIN ecom_bronze.store AS store
+                    ON order_tbl.store_id = store.store_id
+                GROUP BY store.store_id, store.name
+              columns_used:
+                - order_tbl.total
+                - order_tbl.store_id
+                - store.store_id
+                - store.name
+      
+      - name: monthly_order_revenue
+        business_name: Monthly Order Revenue
+        description: >-
+          Total order revenue grouped by month. 
+          Used for time-series revenue trend analysis.
+        return_type: NUMERIC
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', order_tbl.timestamp) AS order_month,
+                    SUM(order_tbl.total) AS monthly_order_revenue
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY DATE_TRUNC('month', order_tbl.timestamp)
+                ORDER BY order_month
+              columns_used:
+                - order_tbl.timestamp
+                - order_tbl.total
+      
+      - name: monthly_order_count
+        business_name: Monthly Order Count
+        description: >-
+          Total number of orders grouped by month. 
+          Used for time-series order volume trend analysis.
+        return_type: INTEGER
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', order_tbl.timestamp) AS order_month,
+                    COUNT(order_tbl.order_id) AS monthly_order_count
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY DATE_TRUNC('month', order_tbl.timestamp)
+                ORDER BY order_month
+              columns_used:
+                - order_tbl.timestamp
+                - order_tbl.order_id
+      
+      - name: customer_acquisition_by_month
+        business_name: Customer Acquisition by Month
+        description: >-
+          Total number of new customers grouped by join month. 
+          Used for customer acquisition trend analysis.
+        return_type: INTEGER
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', customers.join_date) AS join_month,
+                    COUNT(customers.customer_id) AS customer_acquisition_by_month
+                FROM ecom_bronze.customer AS customers
+                GROUP BY DATE_TRUNC('month', customers.join_date)
+                ORDER BY join_month
+              columns_used:
+                - customers.join_date
+                - customers.customer_id
