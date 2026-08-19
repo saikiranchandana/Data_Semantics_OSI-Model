@@ -1,0 +1,68 @@
+# Overall Validation Summary
+
+| Metric | Score (%) |
+|---------|-----------|
+| Overall Validation Score | 91.67 |
+| Accuracy Score | 95.00 |
+| Efficiency Score | 85.00 |
+| Completeness Score | 95.00 |
+| Overall Status | PASS WITH WARNINGS |
+
+**Scoring Thresholds:**
+- PASS: ≥95% overall score, no High-severity issues
+- PASS WITH WARNINGS: 80-94% overall score, no High-severity issues
+- FAIL: <80% overall score or any High-severity issues
+
+---
+
+# Completeness Assessment
+
+| Severity | Area | Issue | Recommendation |
+|----------|------|-------|-----------------|
+| Low | Object Coverage | All 6 tables in the glossary (customer, order_tbl, product, shipment, store, supplier) have corresponding datasets in the semantic model. No missing coverage detected. | No action required. Maintain this alignment in future updates. |
+| Low | Attribute Coverage | All 38 columns documented in the glossary have corresponding field definitions in the semantic model with business names, descriptions, and types. | No action required. Continue documenting all attributes comprehensively. |
+| Medium | Relationship Coverage | The semantic model defines 5 relationships (order_to_customer, order_to_store, product_to_supplier, shipment_to_supplier, shipment_to_store). All foreign key columns referenced in relationships exist in the glossary with FK constraints properly documented. | No action required. Relationship coverage is complete. |
+| Low | Mapping Coverage | All 38 metrics defined in the semantic model reference only columns that exist in the glossary. No orphaned column references detected. | No action required. Maintain strict column reference validation. |
+| Medium | Documentation Coverage | All 6 datasets have descriptions and business names. All 38 fields have descriptions and business names. All 38 metrics have descriptions and business names. Documentation is comprehensive. | No action required. Documentation coverage is excellent. |
+| Low | Rule Coverage | Primary key constraints are documented for all 6 tables. Foreign key constraints are documented for all 7 FK relationships. NOT NULL constraints are documented where applicable. DEFAULT constraints are documented for 3 columns (customer.total_spend, product.is_organic, store.capacity implied). | No action required. Constraint documentation is complete. |
+| Medium | Missing Table | The metric 'revenue_by_product_category' references an 'order_items' table that is not documented in either the glossary or the semantic model. This creates a gap in the data lineage. | Document the order_items table in both the glossary and semantic model, or remove/revise the revenue_by_product_category metric to use available data structures. |
+
+---
+
+# Accuracy Assessment
+
+| Severity | Area | Issue | Recommendation |
+|----------|------|-------|-----------------|
+| Low | Metadata/Technical Accuracy | Data types in the glossary match the sql_type declarations in the semantic model for all 38 columns. Sample values in the glossary are consistent with declared types (e.g., DATE columns show date formats, NUMERIC columns show numeric values). | No action required. Type consistency is maintained. |
+| Low | Business Definition Accuracy | The glossary describes customer.total_spend as "Cumulative monetary amount the customer has spent" and the semantic model's ai_context explicitly warns "Do NOT sum customer.total_spend after joining to order_tbl as this will cause double counting." Both artifacts are aligned on the pre-aggregated nature of this field. | No action required. Critical business logic is consistently documented. |
+| Low | Business Definition Accuracy | The glossary describes order_tbl.total as "Monetary amount representing the total value of the order" and the semantic model instructs "Use order_tbl.total for order-level revenue analysis" and "Aggregate using SUM(order_tbl.total) for total revenue." Definitions are consistent. | No action required. Revenue measure definitions are aligned. |
+| Low | Mapping/Relationship Accuracy | The semantic model defines order_to_customer as "many_to_one" with join on order_tbl.customer_id = customer.customer_id. The glossary documents customer.customer_id as PK and order_tbl.customer_id as FK. Cardinality matches constraint declarations. | No action required. Relationship cardinality is accurate. |
+| Low | Mapping/Relationship Accuracy | The semantic model defines order_to_store as "many_to_one" with join on order_tbl.store_id = store.store_id. The glossary documents store.store_id as PK and order_tbl.store_id as FK. Cardinality matches constraint declarations. | No action required. Relationship cardinality is accurate. |
+| Low | Mapping/Relationship Accuracy | The semantic model defines product_to_supplier as "many_to_one" with join on product.supplier_id = supplier.supplier_id. The glossary documents supplier.supplier_id as PK and product.supplier_id as FK. Cardinality matches constraint declarations. | No action required. Relationship cardinality is accurate. |
+| Low | Mapping/Relationship Accuracy | The semantic model defines shipment_to_supplier as "many_to_one" with join on shipment.supplier_id = supplier.supplier_id. The glossary documents supplier.supplier_id as PK and shipment.supplier_id as FK. Cardinality matches constraint declarations. | No action required. Relationship cardinality is accurate. |
+| Low | Mapping/Relationship Accuracy | The semantic model defines shipment_to_store as "many_to_one" with join on shipment.store_id = store.store_id. The glossary documents store.store_id as PK and shipment.store_id as FK. Cardinality matches constraint declarations. | No action required. Relationship cardinality is accurate. |
+| Low | Naming Convention Consistency | All table names use lowercase with underscores (snake_case): customer, order_tbl, product, shipment, store, supplier. All column names use lowercase with underscores: customer_id, join_date, total_spend, etc. Naming conventions are consistent. | No action required. Naming standards are uniformly applied. |
+| Medium | Naming Convention Consistency | The table name 'order_tbl' uses a '_tbl' suffix while other tables do not (customer, product, shipment, store, supplier). This inconsistency may indicate a naming convention exception or legacy naming. | Consider standardizing table naming by either removing the '_tbl' suffix from order_tbl or documenting the rationale for this exception in the glossary. |
+| Low | Duplicate Detection | No duplicate column definitions detected across tables. Each column name within a table is unique. | No action required. Column definitions are unique. |
+| Low | Duplicate Detection | No duplicate metric definitions detected. Each of the 38 metrics has a unique name and distinct calculation logic. | No action required. Metric definitions are unique. |
+| Low | Duplicate Detection | No duplicate business terms detected. Each business term in the glossary maps to a single column within its table context. | No action required. Business term mapping is unambiguous. |
+
+---
+
+# Efficiency Assessment
+
+| Severity | Area | Issue | Recommendation |
+|----------|------|-------|-----------------|
+| Medium | Redundant Metadata | The description pattern "Unique identifier for a [entity]" is repeated verbatim across 6 primary key columns (customer_id, order_id, product_id, shipment_id, store_id, supplier_id). This could reference a shared definition template. | Create a reusable definition template for primary key identifiers to reduce maintenance overhead and ensure consistency. |
+| Medium | Redundant Metadata | The description pattern "References the [entity] [relationship context]" is repeated across 7 foreign key columns with minor variations. This could reference a shared definition template. | Create a reusable definition template for foreign key references to reduce maintenance overhead and ensure consistency. |
+| Low | Duplicate Documentation | The metrics 'monthly_revenue' and 'running_total_revenue' both calculate revenue aggregated by month, with running_total_revenue adding a cumulative window function. These are complementary rather than duplicative. | No action required. These metrics serve different analytical purposes. |
+| Low | Duplicate Documentation | The metrics 'revenue_by_store' and 'top_stores_by_revenue' both calculate revenue per store, with top_stores_by_revenue adding a ranking. These are complementary rather than duplicative. | No action required. These metrics serve different analytical purposes. |
+| Low | Duplicate Documentation | The metrics 'total_revenue' and 'monthly_revenue' both sum order_tbl.total, but at different grains (single value vs. one row per month). These are complementary rather than duplicative. | No action required. These metrics serve different analytical purposes. |
+| Medium | Unnecessary Complexity | The metric 'revenue_by_product_category' contains a placeholder query with commented-out logic and returns a hardcoded 0 value. This adds complexity without providing functional value. | Either implement the metric with the required order_items table or remove it from the semantic model until the necessary data structures are available. |
+| Medium | Reusability Opportunity | Multiple metrics use the pattern "DATE_TRUNC('month', order_tbl.timestamp)" for monthly aggregation (monthly_revenue, monthly_order_count, revenue_growth_mom, running_total_revenue). This could be abstracted into a reusable CTE or view. | Consider creating a base monthly_orders view or CTE that pre-aggregates order data by month, which can be reused across multiple metrics to improve maintainability. |
+| Medium | Reusability Opportunity | Multiple metrics calculate "COUNT(DISTINCT [entity]_id)" for entity counts (customer_count, order_count, product_count, shipment_count, store_count, supplier_count). These follow a consistent pattern that could be generalized. | Consider documenting a standard pattern or template for entity count metrics to ensure consistency and reduce redundant logic. |
+| Low | Reusability Opportunity | Multiple metrics use the pattern "CASE WHEN COUNT(...) = 0 THEN 0 ELSE [calculation] END" for safe division (average_order_value, revenue_per_customer, orders_per_customer, average_shipment_weight, average_store_capacity). This is a good practice and consistently applied. | No action required. Safe division pattern is consistently implemented. |
+| Medium | Optimization Opportunity | The metrics 'revenue_growth_mom' and 'running_total_revenue' both create a monthly_revenue CTE with identical logic. If these metrics are frequently used together, they could share a common base calculation. | Consider creating a shared monthly_revenue base view or materialized view that can be reused across multiple time-series metrics to improve query performance. |
+| Low | Structural Efficiency | The semantic model's ai_context provides comprehensive guidance on dataset grain, relationships, measure selection, double-counting prevention, time-based analysis, dimensional analysis, and query best practices. This structure promotes efficient and correct usage. | No action required. The ai_context structure is well-organized and comprehensive. |
+| Low | Structural Efficiency | The glossary provides a clear tabular structure with consistent columns (Column Name, Business Term, Description, Type, PII, Constraints, Sample Value) across all 6 tables. This structure is efficient for reference and validation. | No action required. The glossary structure is clear and consistent. |
+
