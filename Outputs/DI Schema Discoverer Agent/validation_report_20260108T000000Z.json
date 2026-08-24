@@ -1,0 +1,73 @@
+{
+  "overall_validation_score": 0,
+  "accuracy_score": 0,
+  "efficiency_score": 0,
+  "completeness_score": 0,
+  "overall_status": "FAIL",
+  "completeness_assessment": [
+    {
+      "severity": "High",
+      "area": "Input Validation",
+      "issue": "OSI Semantic Model YAML file is missing from the input zip. Only Data Glossary PDF was provided.",
+      "recommendation": "Ensure both required artifacts (OSI Semantic Model YAML and Data Glossary) are included in the input zip file."
+    },
+    {
+      "severity": "High",
+      "area": "Object Coverage",
+      "issue": "Cannot validate dataset-to-table mapping without the semantic model.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable completeness validation."
+    },
+    {
+      "severity": "High",
+      "area": "Relationship Coverage",
+      "issue": "Cannot validate relationships without the semantic model.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable relationship validation."
+    },
+    {
+      "severity": "High",
+      "area": "Mapping Coverage",
+      "issue": "Cannot validate metric/measure definitions without the semantic model.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable mapping validation."
+    }
+  ],
+  "accuracy_assessment": [
+    {
+      "severity": "High",
+      "area": "Input Validation",
+      "issue": "OSI Semantic Model YAML file is missing, blocking all accuracy validation checks.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable accuracy validation."
+    },
+    {
+      "severity": "High",
+      "area": "Metadata/Technical Accuracy",
+      "issue": "Cannot validate type consistency without semantic model context.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable type accuracy validation."
+    },
+    {
+      "severity": "High",
+      "area": "Business Definition Accuracy",
+      "issue": "Cannot validate business definition alignment without semantic model.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable business definition validation."
+    }
+  ],
+  "efficiency_assessment": [
+    {
+      "severity": "High",
+      "area": "Input Validation",
+      "issue": "OSI Semantic Model YAML file is missing, blocking all efficiency validation checks.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable efficiency validation."
+    },
+    {
+      "severity": "High",
+      "area": "Redundant Metadata",
+      "issue": "Cannot detect redundant definitions without semantic model.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable redundancy detection."
+    },
+    {
+      "severity": "High",
+      "area": "Duplicate Documentation",
+      "issue": "Cannot detect duplicate metrics without semantic model.",
+      "recommendation": "Provide the OSI Semantic Model YAML file to enable duplicate detection."
+    }
+  ]
+}
