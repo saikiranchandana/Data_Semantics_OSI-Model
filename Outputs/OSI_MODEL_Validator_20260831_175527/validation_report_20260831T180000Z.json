@@ -1,0 +1,103 @@
+{
+  "overall_validation_score": 0,
+  "accuracy_score": 0,
+  "efficiency_score": 0,
+  "completeness_score": 0,
+  "overall_status": "FAIL",
+  "completeness_assessment": [
+    {
+      "severity": "High",
+      "area": "Object Coverage",
+      "issue": "OSI Semantic Model contains zero datasets; Data Glossary contains zero tables. No objects to validate coverage.",
+      "recommendation": "Provide a complete Data Glossary with table definitions and populate the semantic model with corresponding datasets."
+    },
+    {
+      "severity": "High",
+      "area": "Attribute/Metadata Coverage",
+      "issue": "Data Glossary reports 0 documented columns; semantic model contains no fields or attributes.",
+      "recommendation": "Document all columns in the Data Glossary with business terms, descriptions, and data types."
+    },
+    {
+      "severity": "High",
+      "area": "Relationship Coverage",
+      "issue": "Semantic model contains zero relationships; no foreign-key or primary-key metadata present in glossary.",
+      "recommendation": "Define table relationships in the glossary (PK/FK constraints) and document them in the semantic model."
+    },
+    {
+      "severity": "High",
+      "area": "Mapping Coverage",
+      "issue": "Semantic model contains zero metrics and zero measures; no column references to validate.",
+      "recommendation": "Define business metrics and measures in the semantic model that reference actual glossary columns."
+    },
+    {
+      "severity": "High",
+      "area": "Documentation Coverage",
+      "issue": "All descriptions are absent: 0 tables, 0 columns, 0 datasets, 0 metrics documented.",
+      "recommendation": "Provide comprehensive business descriptions for all data objects."
+    },
+    {
+      "severity": "High",
+      "area": "Rule Coverage",
+      "issue": "No constraints (PK, NOT NULL, UNIQUE, FK, DEFAULT) documented in glossary; semantic model has no constraint references.",
+      "recommendation": "Document data quality rules and constraints for all columns in the glossary."
+    }
+  ],
+  "accuracy_assessment": [
+    {
+      "severity": "High",
+      "area": "Metadata/Technical Accuracy",
+      "issue": "Cannot validate type consistency: glossary contains no column type definitions or sample values.",
+      "recommendation": "Populate glossary with data types and representative sample values for all columns."
+    },
+    {
+      "severity": "High",
+      "area": "Business Definition Accuracy",
+      "issue": "Cannot validate business definition alignment: no business terms or descriptions present in either artifact.",
+      "recommendation": "Ensure business definitions in the glossary align with semantic model usage instructions."
+    },
+    {
+      "severity": "High",
+      "area": "Mapping/Relationship Accuracy",
+      "issue": "Cannot validate join cardinality: no relationships defined in semantic model, no PK/FK constraints in glossary.",
+      "recommendation": "Define and validate relationship cardinalities between glossary constraints and semantic model relationships."
+    },
+    {
+      "severity": "Medium",
+      "area": "Naming Convention Consistency",
+      "issue": "Cannot assess naming patterns: no tables or columns present to evaluate.",
+      "recommendation": "Establish and document consistent naming conventions (e.g., snake_case) across all objects."
+    },
+    {
+      "severity": "High",
+      "area": "Duplicate Detection",
+      "issue": "Cannot detect duplicates: no column definitions, metric definitions, or business terms present.",
+      "recommendation": "Implement duplicate detection once metadata is populated."
+    }
+  ],
+  "efficiency_assessment": [
+    {
+      "severity": "Medium",
+      "area": "Redundant Metadata / Repeated Definitions",
+      "issue": "Cannot assess redundancy: no metadata or definitions present in either artifact.",
+      "recommendation": "Once populated, review for duplicate business definitions and consolidate where appropriate."
+    },
+    {
+      "severity": "Medium",
+      "area": "Duplicate Documentation",
+      "issue": "Cannot assess duplicate metrics: semantic model contains zero metrics.",
+      "recommendation": "Once metrics are defined, review for duplicate calculations under different names."
+    },
+    {
+      "severity": "Low",
+      "area": "Unnecessary Complexity / Structural Efficiency",
+      "issue": "Cannot assess complexity: semantic model contains no expressions, CTEs, or logic to evaluate.",
+      "recommendation": "Design metrics with reusable components and avoid unnecessary complexity."
+    },
+    {
+      "severity": "Low",
+      "area": "Reusability / Optimization Opportunities",
+      "issue": "Cannot identify optimization opportunities: no metrics or measures defined.",
+      "recommendation": "Design generalized metrics that can be parameterized rather than creating multiple similar definitions."
+    }
+  ]
+}
