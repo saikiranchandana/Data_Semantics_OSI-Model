@@ -1,0 +1,42 @@
+version: "1.0"
+
+semantic_model:
+  - name: ecommerce_semantic_model
+    description: >-
+      Semantic model for E-commerce Analysis. 
+      
+      NOTE: The provided Data Glossary contained no documented tables, columns, or metadata.
+      This semantic model is empty as no analytical datasets, fields, relationships, 
+      dimensions, measures, or metrics could be derived from the input.
+      
+      The Data Glossary report indicated:
+      - Tables Found: 0
+      - Documented Columns: 0
+      - PII Fields: 0
+      - Domain Context: Customer Experience
+      - No active glossary tables found for this process
+      
+      To generate a complete semantic model, please provide a Data Glossary containing:
+      - Table definitions
+      - Column metadata
+      - Business descriptions
+      - Data types
+      - Primary keys
+      - Foreign keys
+      - Constraints
+      - Business terminology
+      
+    ai_context:
+      instructions: >-
+        This semantic model is empty because the provided Data Glossary contained no metadata.
+        
+        No datasets, fields, relationships, dimensions, measures, or metrics could be generated.
+        
+        To enable semantic query generation, please provide a complete Data Glossary with documented
+        tables, columns, relationships, and business definitions.
+        
+    datasets: []
+    
+    relationships: []
+    
+    metrics: []
