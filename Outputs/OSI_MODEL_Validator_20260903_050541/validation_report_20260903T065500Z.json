@@ -1,0 +1,55 @@
+{
+  "overall_validation_score": 95.83,
+  "accuracy_score": 97.50,
+  "efficiency_score": 90.00,
+  "completeness_score": 100.00,
+  "overall_status": "PASS",
+  "completeness_assessment": [
+    {
+      "severity": "-",
+      "area": "-",
+      "issue": "No completeness issues found",
+      "recommendation": "All tables, columns, datasets, relationships, and metrics are fully documented and mapped between the semantic model and data glossary"
+    }
+  ],
+  "accuracy_assessment": [
+    {
+      "severity": "Low",
+      "area": "Metadata Accuracy",
+      "issue": "CUSTOMER.total_spend type mismatch: Semantic model declares NUMERIC(12,2) but glossary shows NUMERIC(12,2) with DEFAULT constraint, while semantic model shows DEFAULT 0",
+      "recommendation": "Verify the default value is consistently documented as 0 in both artifacts"
+    },
+    {
+      "severity": "Low",
+      "area": "Business Definition Accuracy",
+      "issue": "CUSTOMER.total_spend description in semantic model states \"This is a derived or maintained aggregate field\" but glossary does not mention derivation or maintenance process",
+      "recommendation": "Add derivation/maintenance details to glossary description for clarity"
+    }
+  ],
+  "efficiency_assessment": [
+    {
+      "severity": "Low",
+      "area": "Redundant Metadata",
+      "issue": "Multiple metrics compute similar aggregations by dimension (e.g., revenue_by_customer, revenue_by_product, revenue_by_store, revenue_by_state, revenue_by_city) with near-identical SQL patterns",
+      "recommendation": "Consider creating a parameterized revenue aggregation function or template that accepts dimension as parameter"
+    },
+    {
+      "severity": "Low",
+      "area": "Redundant Metadata",
+      "issue": "Multiple metrics compute counts by dimension (e.g., orders_by_loyalty_tier, orders_by_payment_method, orders_by_status, shipments_by_supplier, shipments_by_store) with identical COUNT(DISTINCT) patterns",
+      "recommendation": "Consider creating a reusable count aggregation template or macro"
+    },
+    {
+      "severity": "Medium",
+      "area": "Structural Efficiency",
+      "issue": "Shipment transit time metric (shipment_transit_time) computes AVG(arrival_date - dispatch_date) but could be optimized by pre-computing transit days as a derived column in the semantic model",
+      "recommendation": "Add a derived field transit_days to the shipment dataset to improve query performance and reusability"
+    },
+    {
+      "severity": "Low",
+      "area": "Optimization Opportunity",
+      "issue": "Units_sold_by_product and revenue_by_product metrics join the same tables (order_contains_product and product) and could share a common CTE or base view",
+      "recommendation": "Create a shared base query for product-level analysis that both metrics can reference"
+    }
+  ]
+}
