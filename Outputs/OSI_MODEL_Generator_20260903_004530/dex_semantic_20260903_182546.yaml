@@ -1,0 +1,484 @@
+version: "1.0"
+
+semantic_model:
+  - name: ecom_customer_analytics
+    description: >-
+      E-commerce customer analytics semantic model derived from the customer dataset.
+      This model provides comprehensive customer analysis capabilities including customer demographics,
+      loyalty program analysis, customer lifetime value tracking, and customer behavior analytics.
+      The model supports customer segmentation, retention analysis, and revenue attribution at the customer level.
+    
+    ai_context:
+      instructions: >-
+        ## Dataset Grain and Analytical Context
+        
+        ### Customer Dataset
+        - **Grain**: One row per customer
+        - **Primary Key**: customer_id
+        - **Business Purpose**: Stores customer master data including identification, contact information, loyalty program membership, registration date, and cumulative spending
+        - **Analytical Use**: Customer segmentation, loyalty analysis, customer lifetime value analysis, cohort analysis, customer retention tracking
+        
+        ## Dimension Guidance
+        
+        ### Customer Dimensions
+        - **customer_id**: Unique customer identifier - use for customer-level aggregation and counting distinct customers
+        - **name**: Customer name - use for customer identification and reporting
+        - **email**: Customer email address - use for customer contact and unique customer identification
+        - **loyalty_tier**: Customer loyalty program tier - use for customer segmentation and loyalty program analysis
+        - **join_date**: Customer registration date - use for cohort analysis, customer tenure calculation, and time-based customer segmentation
+        
+        ### Time Dimension
+        - **join_date**: Primary time dimension for customer acquisition analysis
+          - Use for analyzing customer acquisition trends over time
+          - Use for cohort-based analysis (customers who joined in the same period)
+          - Use for calculating customer tenure and lifetime
+          - Supports daily, monthly, quarterly, and yearly aggregation
+        
+        ## Measure Guidance
+        
+        ### Customer Measures
+        - **total_spend**: Cumulative customer spending
+          - Aggregation: SUM for total revenue across customers
+          - Aggregation: AVG for average customer lifetime value
+          - Use for customer value segmentation
+          - Use for identifying high-value customers
+          - This is a cumulative measure representing all-time customer spending
+        
+        ## Metric Selection and Usage
+        
+        ### Customer Count Metrics
+        - **Total Customer Count**: Use COUNT(DISTINCT customer_id) for total unique customers
+        - **Active Customer Count**: Requires additional activity criteria (not available in current dataset)
+        
+        ### Revenue Metrics
+        - **Total Customer Revenue**: Use SUM(total_spend) for aggregate customer revenue
+        - **Average Customer Lifetime Value**: Use AVG(total_spend) for average spending per customer
+        - **Customer Revenue Distribution**: Analyze total_spend distribution across loyalty tiers or cohorts
+        
+        ### Loyalty Program Metrics
+        - **Customers by Loyalty Tier**: Use COUNT(DISTINCT customer_id) grouped by loyalty_tier
+        - **Revenue by Loyalty Tier**: Use SUM(total_spend) grouped by loyalty_tier
+        - **Average Spend by Loyalty Tier**: Use AVG(total_spend) grouped by loyalty_tier
+        
+        ### Customer Acquisition Metrics
+        - **New Customers**: Use COUNT(DISTINCT customer_id) grouped by join_date periods
+        - **Customer Acquisition Trend**: Analyze customer count over time using join_date
+        
+        ## Query Construction Guidance
+        
+        ### Customer-Level Analysis
+        When analyzing at the customer level:
+        - Use customer_id as the primary grouping dimension
+        - total_spend represents cumulative lifetime spending
+        - All metrics are naturally at customer grain
+        
+        ### Time-Based Customer Analysis
+        When analyzing customer acquisition over time:
+        - Use join_date for time-based grouping
+        - Use DATE_TRUNC or equivalent PostgreSQL date functions for period aggregation
+        - Common periods: day, week, month, quarter, year
+        
+        ### Loyalty Tier Analysis
+        When analyzing by loyalty program tier:
+        - Group by loyalty_tier dimension
+        - Compare customer counts and revenue across tiers
+        - Calculate average customer value by tier
+        
+        ### Cohort Analysis
+        When performing cohort analysis:
+        - Define cohorts based on join_date periods (e.g., month of joining)
+        - Track cohort behavior over time
+        - Compare metrics across different cohorts
+        
+        ## Important Considerations
+        
+        ### Data Grain
+        - This dataset contains one record per customer
+        - No transaction-level detail is available
+        - total_spend is a pre-aggregated cumulative measure
+        - For transaction-level analysis, additional datasets would be required
+        
+        ### Customer Uniqueness
+        - customer_id is the unique identifier (100% distinct)
+        - email is also unique (100% distinct) and can serve as an alternative identifier
+        - name has 100% distinct values in the sample data
+        
+        ### Loyalty Tier
+        - loyalty_tier uses a custom enum type: "ECOM_BRONZE"."LOYALTY_TIER_ENUM"
+        - All customers have a loyalty tier assigned (0 nulls)
+        - Use for customer segmentation and loyalty program effectiveness analysis
+        
+        ### Date Handling
+        - join_date is stored as DATE type
+        - Use PostgreSQL date functions for date arithmetic and period extraction
+        - Examples: DATE_TRUNC('month', join_date), EXTRACT(YEAR FROM join_date)
+        - All customers have a join_date (0 nulls)
+        
+        ### Revenue Analysis
+        - total_spend is NUMERIC type supporting decimal precision
+        - Represents cumulative lifetime spending per customer
+        - No null values present (0 nulls)
+        - Use for customer value segmentation and revenue attribution
+        
+        ## Query Restrictions and Limitations
+        
+        ### Missing Information
+        - No transaction-level data available
+        - No product purchase information
+        - No order history details
+        - No customer activity dates beyond join_date
+        - Cannot determine customer activity status without additional data
+        - Cannot calculate recency, frequency beyond what's captured in total_spend
+        
+        ### Aggregation Warnings
+        - total_spend is already a cumulative measure
+        - Do not double-count by summing total_spend after unnecessary joins
+        - When joining to other datasets, ensure proper grain handling
+        
+        ### Recommended Query Patterns
+        - Customer segmentation by loyalty_tier and total_spend
+        - Customer acquisition trends by join_date
+        - Customer lifetime value distribution analysis
+        - Loyalty tier effectiveness analysis
+        - Cohort-based customer analysis by join_date periods
+
+    datasets:
+      - name: customers
+        business_name: Customer Master
+        description: >-
+          Customer master dataset containing one row per customer.
+          This dataset stores core customer information including unique customer identifiers,
+          contact information, loyalty program membership tier, customer registration date,
+          and cumulative lifetime spending.
+          
+          Analytical Grain: One row per customer.
+          
+          Business Purpose: Supports customer analytics, loyalty program analysis, customer segmentation,
+          customer lifetime value analysis, and customer acquisition tracking.
+          
+          Data Quality: 100 total records with 100% data quality across all columns.
+          All columns have zero null values and 100% distinct values, indicating high data quality
+          and proper customer uniqueness enforcement.
+        
+        source: ecom_bronze.customer
+        
+        primary_key:
+          - customer_id
+        
+        fields:
+          - name: customer_id
+            business_name: Customer ID
+            description: >-
+              Unique identifier for each customer. This is the primary key of the customer dataset.
+              Format: Alphanumeric code following pattern ^[A-Z0-9]+$.
+              Data Quality: 100% distinct values, 0 nulls, 100% format match rate.
+              Use this field for customer-level aggregation, customer counting, and joining to other datasets.
+            sql_type: VARCHAR
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+          
+          - name: name
+            business_name: Customer Name
+            description: >-
+              Customer full name.
+              Format: Alphanumeric code following pattern ^[A-Z0-9]+$.
+              Data Quality: 100% distinct values, 0 nulls, 100% format match rate.
+              Use for customer identification and reporting purposes.
+            sql_type: VARCHAR
+            constraints:
+              - NOT NULL
+            dimension:
+              is_categorical: true
+          
+          - name: email
+            business_name: Customer Email
+            description: >-
+              Customer email address. Serves as a unique contact identifier.
+              Format: Email address following pattern ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$.
+              Data Quality: 100% distinct values, 0 nulls, 100% format match rate.
+              Use for customer contact, unique customer identification, and email-based analytics.
+            sql_type: VARCHAR
+            constraints:
+              - NOT NULL
+              - UNIQUE
+            dimension:
+              is_categorical: true
+          
+          - name: loyalty_tier
+            business_name: Loyalty Program Tier
+            description: >-
+              Customer loyalty program tier or membership level.
+              Type: Custom enum type "ECOM_BRONZE"."LOYALTY_TIER_ENUM".
+              Format: Alphanumeric code following pattern ^[A-Z0-9]+$.
+              Data Quality: 100% distinct values, 0 nulls, 100% format match rate.
+              Use for customer segmentation, loyalty program analysis, and tier-based performance comparison.
+              This is a key dimension for analyzing loyalty program effectiveness and customer value by tier.
+            sql_type: "ECOM_BRONZE"."LOYALTY_TIER_ENUM"
+            constraints:
+              - NOT NULL
+            dimension:
+              is_categorical: true
+          
+          - name: join_date
+            business_name: Customer Join Date
+            description: >-
+              Date when the customer registered or joined the platform.
+              Format: ISO Date (YYYY-MM-DD) following pattern ^\d{4}-\d{2}-\d{2}$.
+              Data Quality: 100% distinct values, 0 nulls, 100% format match rate.
+              Use for customer acquisition analysis, cohort analysis, customer tenure calculation,
+              and time-based customer segmentation. This is the primary time dimension for customer analytics.
+            sql_type: DATE
+            constraints:
+              - NOT NULL
+            dimension:
+              is_time: true
+          
+          - name: total_spend
+            business_name: Customer Total Spend
+            description: >-
+              Cumulative total spending amount for the customer across all transactions.
+              This represents the customer's lifetime value in monetary terms.
+              Format: Numeric (integer or decimal) following pattern ^[0-9]+(\.[0-9]+)?$.
+              Data Quality: 100% distinct values, 0 nulls, 100% format match rate.
+              Use for customer value segmentation, revenue analysis, average customer lifetime value calculation,
+              and identifying high-value customers. This is a pre-aggregated cumulative measure.
+            sql_type: NUMERIC
+            constraints:
+              - NOT NULL
+            measure:
+              aggregation: SUM
+              is_additive: true
+
+    relationships: []
+
+    metrics:
+      - name: total_customer_count
+        business_name: Total Customer Count
+        description: >-
+          Total number of unique customers in the system.
+          This metric counts distinct customers using the customer_id primary key.
+          Use this metric for overall customer base size reporting and customer growth tracking.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(DISTINCT customers.customer_id) AS total_customer_count
+                FROM ecom_bronze.customer AS customers
+              columns_used:
+                - customers.customer_id
+      
+      - name: total_customer_revenue
+        business_name: Total Customer Revenue
+        description: >-
+          Total cumulative revenue across all customers.
+          This metric sums the total_spend field which represents each customer's lifetime spending.
+          Use this metric for overall revenue reporting and business performance tracking.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(customers.total_spend) AS total_customer_revenue
+                FROM ecom_bronze.customer AS customers
+              columns_used:
+                - customers.total_spend
+      
+      - name: average_customer_lifetime_value
+        business_name: Average Customer Lifetime Value
+        description: >-
+          Average lifetime spending per customer.
+          This metric calculates the mean of the total_spend field across all customers.
+          Use this metric for understanding typical customer value and for customer value benchmarking.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(customers.total_spend) AS average_customer_lifetime_value
+                FROM ecom_bronze.customer AS customers
+              columns_used:
+                - customers.total_spend
+      
+      - name: customers_by_loyalty_tier
+        business_name: Customer Count by Loyalty Tier
+        description: >-
+          Number of customers in each loyalty program tier.
+          This metric groups customers by loyalty_tier and counts distinct customers in each tier.
+          Use this metric for loyalty program distribution analysis and tier membership reporting.
+        return_type: integer
+        result_grain: one row per loyalty tier
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    customers.loyalty_tier,
+                    COUNT(DISTINCT customers.customer_id) AS customer_count
+                FROM ecom_bronze.customer AS customers
+                GROUP BY customers.loyalty_tier
+              columns_used:
+                - customers.loyalty_tier
+                - customers.customer_id
+      
+      - name: revenue_by_loyalty_tier
+        business_name: Revenue by Loyalty Tier
+        description: >-
+          Total cumulative revenue generated by customers in each loyalty program tier.
+          This metric groups customers by loyalty_tier and sums their total_spend.
+          Use this metric for analyzing loyalty program effectiveness and revenue contribution by tier.
+        return_type: decimal
+        result_grain: one row per loyalty tier
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    customers.loyalty_tier,
+                    SUM(customers.total_spend) AS total_revenue
+                FROM ecom_bronze.customer AS customers
+                GROUP BY customers.loyalty_tier
+              columns_used:
+                - customers.loyalty_tier
+                - customers.total_spend
+      
+      - name: average_spend_by_loyalty_tier
+        business_name: Average Customer Spend by Loyalty Tier
+        description: >-
+          Average customer lifetime spending within each loyalty program tier.
+          This metric groups customers by loyalty_tier and calculates the average total_spend per tier.
+          Use this metric for comparing customer value across loyalty tiers and assessing tier-based customer quality.
+        return_type: decimal
+        result_grain: one row per loyalty tier
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    customers.loyalty_tier,
+                    AVG(customers.total_spend) AS average_spend
+                FROM ecom_bronze.customer AS customers
+                GROUP BY customers.loyalty_tier
+              columns_used:
+                - customers.loyalty_tier
+                - customers.total_spend
+      
+      - name: new_customers_by_month
+        business_name: New Customer Acquisitions by Month
+        description: >-
+          Number of new customers acquired each month based on their join date.
+          This metric uses date truncation to group customers by month and counts distinct customers per month.
+          Use this metric for customer acquisition trend analysis and growth tracking over time.
+        return_type: integer
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', customers.join_date) AS acquisition_month,
+                    COUNT(DISTINCT customers.customer_id) AS new_customers
+                FROM ecom_bronze.customer AS customers
+                GROUP BY DATE_TRUNC('month', customers.join_date)
+                ORDER BY acquisition_month
+              columns_used:
+                - customers.join_date
+                - customers.customer_id
+      
+      - name: new_customers_by_quarter
+        business_name: New Customer Acquisitions by Quarter
+        description: >-
+          Number of new customers acquired each quarter based on their join date.
+          This metric uses date truncation to group customers by quarter and counts distinct customers per quarter.
+          Use this metric for quarterly customer acquisition reporting and seasonal trend analysis.
+        return_type: integer
+        result_grain: one row per quarter
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('quarter', customers.join_date) AS acquisition_quarter,
+                    COUNT(DISTINCT customers.customer_id) AS new_customers
+                FROM ecom_bronze.customer AS customers
+                GROUP BY DATE_TRUNC('quarter', customers.join_date)
+                ORDER BY acquisition_quarter
+              columns_used:
+                - customers.join_date
+                - customers.customer_id
+      
+      - name: new_customers_by_year
+        business_name: New Customer Acquisitions by Year
+        description: >-
+          Number of new customers acquired each year based on their join date.
+          This metric uses date truncation to group customers by year and counts distinct customers per year.
+          Use this metric for annual customer acquisition reporting and long-term growth analysis.
+        return_type: integer
+        result_grain: one row per year
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('year', customers.join_date) AS acquisition_year,
+                    COUNT(DISTINCT customers.customer_id) AS new_customers
+                FROM ecom_bronze.customer AS customers
+                GROUP BY DATE_TRUNC('year', customers.join_date)
+                ORDER BY acquisition_year
+              columns_used:
+                - customers.join_date
+                - customers.customer_id
+      
+      - name: revenue_by_acquisition_month
+        business_name: Customer Revenue by Acquisition Month
+        description: >-
+          Total cumulative revenue from customers grouped by their acquisition month.
+          This metric enables cohort-based revenue analysis by grouping customers by join month
+          and summing their lifetime spending.
+          Use this metric for cohort revenue analysis and understanding customer value by acquisition period.
+        return_type: decimal
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', customers.join_date) AS acquisition_month,
+                    SUM(customers.total_spend) AS cohort_revenue
+                FROM ecom_bronze.customer AS customers
+                GROUP BY DATE_TRUNC('month', customers.join_date)
+                ORDER BY acquisition_month
+              columns_used:
+                - customers.join_date
+                - customers.total_spend
+      
+      - name: average_customer_value_by_acquisition_cohort
+        business_name: Average Customer Value by Acquisition Cohort
+        description: >-
+          Average customer lifetime value for customers grouped by their acquisition month cohort.
+          This metric groups customers by join month and calculates average total_spend per cohort.
+          Use this metric for comparing customer quality across different acquisition periods
+          and identifying high-value acquisition cohorts.
+        return_type: decimal
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', customers.join_date) AS acquisition_month,
+                    AVG(customers.total_spend) AS average_customer_value
+                FROM ecom_bronze.customer AS customers
+                GROUP BY DATE_TRUNC('month', customers.join_date)
+                ORDER BY acquisition_month
+              columns_used:
+                - customers.join_date
+                - customers.total_spend
