@@ -1,0 +1,656 @@
+version: "1.0"
+
+semantic_model:
+  - name: ecom_healthcare_semantic_model
+    description: >-
+      Semantic model for healthcare e-commerce platform containing customer, order, and product data.
+      This model supports analytical queries for customer behavior, order fulfillment, product performance,
+      and revenue analysis within the healthcare domain.
+    
+    ai_context:
+      instructions: >-
+        ## Dataset Grain
+        
+        - CUSTOMER: One row per customer account. Use customer_id as the unique identifier.
+        - ORDER_TBL: One row per order transaction. Use order_id as the unique identifier.
+        - PRODUCT: One row per product in the catalog. Use product_id as the unique identifier.
+        
+        ## Relationship Structure
+        
+        - CUSTOMER (1) → ORDER_TBL (many): One customer can place multiple orders. Join on customer_id.
+        - PRODUCT (1) → ORDER_TBL (many): One product can appear in multiple orders. Join on product_id via supplier relationship context.
+        - Orders reference customers via customer_id foreign key.
+        - Orders reference stores via store_id foreign key (store dimension not available in glossary).
+        - Products reference suppliers via supplier_id foreign key (supplier dimension not available in glossary).
+        
+        ## Measure Selection and Aggregation
+        
+        - For customer-level revenue analysis, use CUSTOMER.total_spend (already aggregated at customer level).
+        - For order-level revenue analysis, use ORDER_TBL.total (order-level amount).
+        - For product-level pricing, use PRODUCT.price (unit price, not aggregated).
+        - When joining ORDER_TBL to CUSTOMER, do NOT sum CUSTOMER.total_spend after the join as this will duplicate customer totals across multiple orders.
+        - When analyzing revenue by order, use SUM(ORDER_TBL.total).
+        - When analyzing customer lifetime value, use SUM(CUSTOMER.total_spend) without joining to ORDER_TBL.
+        
+        ## Time Analysis
+        
+        - For order timing analysis, use ORDER_TBL.timestamp (order placement date and time).
+        - For customer acquisition analysis, use CUSTOMER.join_date (customer registration date).
+        - ORDER_TBL.timestamp is the primary date for revenue trend analysis.
+        - CUSTOMER.join_date is the primary date for customer cohort analysis.
+        
+        ## Dimensional Analysis
+        
+        - Customer segmentation: Use CUSTOMER.loyalty_tier (GOLD, SILVER, BRONZE, etc.).
+        - Order status analysis: Use ORDER_TBL.status (Completed, Pending, Cancelled, etc.).
+        - Payment method analysis: Use ORDER_TBL.payment_method (CreditCard, DebitCard, PayPal, etc.).
+        - Product category analysis: Use PRODUCT.category (Medical Devices, Pharmaceuticals, etc.).
+        - Product origin analysis: Use PRODUCT.origin (country/region).
+        - Organic product filtering: Use PRODUCT.is_organic (true/false).
+        
+        ## Double-Counting Prevention
+        
+        - CUSTOMER.total_spend is pre-aggregated at customer level. Do NOT sum this field after joining CUSTOMER to ORDER_TBL.
+        - To calculate total revenue across all orders, use SUM(ORDER_TBL.total), not SUM(CUSTOMER.total_spend) after joining.
+        - To calculate customer lifetime value, use CUSTOMER.total_spend directly without joining to ORDER_TBL.
+        - When analyzing orders by customer, join ORDER_TBL to CUSTOMER but aggregate ORDER_TBL.total, not CUSTOMER.total_spend.
+        
+        ## Query Guidance
+        
+        - For "revenue by customer", use CUSTOMER.total_spend grouped by customer attributes.
+        - For "revenue by order date", use ORDER_TBL.total grouped by ORDER_TBL.timestamp.
+        - For "revenue by product category", join ORDER_TBL to PRODUCT and aggregate ORDER_TBL.total (note: requires order line items for accurate product-level revenue, which are not available in this glossary).
+        - For "customer count by loyalty tier", count distinct CUSTOMER.customer_id grouped by CUSTOMER.loyalty_tier.
+        - For "order count by status", count distinct ORDER_TBL.order_id grouped by ORDER_TBL.status.
+        - For "average order value", calculate AVG(ORDER_TBL.total) or SUM(ORDER_TBL.total) / COUNT(DISTINCT ORDER_TBL.order_id).
+        
+        ## Data Quality Notes
+        
+        - PII fields (CUSTOMER.name, CUSTOMER.email) are redacted in sample data.
+        - CUSTOMER.total_spend has a default value, indicating it may be computed or maintained as a running total.
+        - PRODUCT.is_organic has a default value of true.
+        - Foreign key references to STORE and SUPPLIER dimensions exist but those tables are not documented in this glossary.
+
+    datasets:
+      - name: customer
+        business_name: Customer
+        description: >-
+          Contains customer account information for the healthcare e-commerce platform.
+          Each row represents one unique customer account identified by customer_id.
+          Includes customer profile data, loyalty tier assignment, registration date, and total lifetime spend.
+          The total_spend field represents the cumulative monetary amount the customer has spent across all orders.
+        source: ecom_bronze.customer
+        primary_key:
+          - customer_id
+        fields:
+          - name: customer_id
+            business_name: Customer Identifier
+            description: >-
+              Unique identifier for a customer account. Primary key for the customer dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+          
+          - name: name
+            business_name: Name
+            description: >-
+              Full name of the customer. This field contains personally identifiable information (PII).
+            sql_type: VARCHAR(200)
+            constraints:
+              - NOT NULL
+          
+          - name: email
+            business_name: Email
+            description: >-
+              Email address used to contact the customer. This field contains personally identifiable information (PII).
+            sql_type: VARCHAR(255)
+            constraints: []
+          
+          - name: loyalty_tier
+            business_name: Loyalty Tier
+            description: >-
+              Indicates the loyalty tier level assigned to the customer (e.g., GOLD, SILVER, BRONZE).
+              Used for customer segmentation and targeted marketing analysis.
+            sql_type: ecom_bronze.loyalty_tier_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: join_date
+            business_name: Join Date
+            description: >-
+              Date when the customer account was created. Used for customer acquisition and cohort analysis.
+            sql_type: DATE
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: total_spend
+            business_name: Total Spend
+            description: >-
+              Total monetary amount the customer has spent on orders. This is a pre-aggregated measure
+              representing customer lifetime value. Do not sum this field after joining to ORDER_TBL
+              as it will cause double-counting.
+            sql_type: NUMERIC(12,2)
+            constraints:
+              - DEFAULT
+      
+      - name: order_tbl
+        business_name: Order
+        description: >-
+          Contains order transaction data for the healthcare e-commerce platform.
+          Each row represents one unique order identified by order_id.
+          Includes order timing, total amount, status, payment method, and references to customer and store.
+          This is the primary fact table for order-level revenue and fulfillment analysis.
+        source: ecom_bronze.order_tbl
+        primary_key:
+          - order_id
+        fields:
+          - name: order_id
+            business_name: Order Identifier
+            description: >-
+              Unique identifier for an ecommerce order. Primary key for the order dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+          
+          - name: timestamp
+            business_name: Timestamp
+            description: >-
+              Date and time when the order was placed. Primary time dimension for order and revenue trend analysis.
+            sql_type: TIMESTAMP(6)
+            constraints: []
+            dimension:
+              is_time: true
+          
+          - name: total
+            business_name: Total
+            description: >-
+              Total monetary amount charged for the order. This is the primary revenue measure at order grain.
+              Use this field for order-level revenue analysis and aggregation.
+            sql_type: NUMERIC(10,2)
+            constraints: []
+          
+          - name: status
+            business_name: Status
+            description: >-
+              Indicates the current processing status of the order (e.g., Completed, Pending, Cancelled).
+              Used for order fulfillment analysis and operational reporting.
+            sql_type: ecom_bronze.order_status_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: payment_method
+            business_name: Payment Method
+            description: >-
+              Specifies the method used to pay for the order (e.g., CreditCard, DebitCard, PayPal).
+              Used for payment channel analysis.
+            sql_type: ecom_bronze.payment_method_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: customer_id
+            business_name: Customer Reference
+            description: >-
+              References the related customer record who placed the order. Foreign key to CUSTOMER.customer_id.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+          
+          - name: store_id
+            business_name: Store Reference
+            description: >-
+              References the store or location associated with the order. Foreign key to an external store dimension
+              not documented in this glossary.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+      
+      - name: product
+        business_name: Product
+        description: >-
+          Contains product catalog information for the healthcare e-commerce platform.
+          Each row represents one unique product identified by product_id.
+          Includes product name, category, pricing, origin, organic certification, and supplier reference.
+          This is the primary dimension for product-level analysis.
+        source: ecom_bronze.product
+        primary_key:
+          - product_id
+        fields:
+          - name: product_id
+            business_name: Product Identifier
+            description: >-
+              Unique identifier for a product in the catalog. Primary key for the product dataset.
+            sql_type: VARCHAR(50)
+            constraints:
+              - PRIMARY KEY
+              - NOT NULL
+              - UNIQUE
+          
+          - name: name
+            business_name: Name
+            description: >-
+              Name of the product as displayed to customers.
+            sql_type: VARCHAR(200)
+            constraints:
+              - NOT NULL
+          
+          - name: category
+            business_name: Category
+            description: >-
+              Category or type classification of the product (e.g., Medical Devices, Pharmaceuticals).
+              Used for product category analysis and reporting.
+            sql_type: ecom_bronze.product_category_enum
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: price
+            business_name: Price
+            description: >-
+              Unit price of the product. This is a unit-level measure, not an aggregated revenue measure.
+            sql_type: NUMERIC(10,2)
+            constraints: []
+          
+          - name: origin
+            business_name: Origin
+            description: >-
+              Country or region where the product is manufactured or sourced.
+              Used for supply chain and origin analysis.
+            sql_type: VARCHAR(100)
+            constraints: []
+            dimension:
+              is_time: false
+          
+          - name: is_organic
+            business_name: Is Organic
+            description: >-
+              Indicates whether the product is certified organic (true/false).
+              Used for product attribute filtering and organic product analysis.
+            sql_type: BOOL
+            constraints:
+              - DEFAULT
+            dimension:
+              is_time: false
+          
+          - name: supplier_id
+            business_name: Supplier Reference
+            description: >-
+              References the supplier providing the product. Foreign key to an external supplier dimension
+              not documented in this glossary.
+            sql_type: VARCHAR(50)
+            constraints:
+              - FOREIGN KEY
+
+    relationships:
+      - name: order_to_customer
+        left_dataset: order_tbl
+        right_dataset: customer
+        relationship_type: many_to_one
+        join:
+          left:
+            - customer_id
+          right:
+            - customer_id
+        join_type: many_to_one
+        resolution: >-
+          Each order is placed by exactly one customer. Multiple orders can be placed by the same customer.
+          Join ORDER_TBL to CUSTOMER on customer_id to enrich order data with customer attributes such as
+          loyalty_tier and join_date. When aggregating revenue, use ORDER_TBL.total, not CUSTOMER.total_spend,
+          to avoid double-counting.
+
+    metrics:
+      - name: total_revenue
+        business_name: Total Revenue
+        description: >-
+          Total revenue generated from all orders. Calculated as the sum of order totals.
+          This metric aggregates revenue at the order level.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(order_tbl.total) AS total_revenue
+                FROM ecom_bronze.order_tbl AS order_tbl
+              columns_used:
+                - order_tbl.total
+      
+      - name: order_count
+        business_name: Order Count
+        description: >-
+          Total number of orders placed. Calculated as the count of distinct order IDs.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(DISTINCT order_tbl.order_id) AS order_count
+                FROM ecom_bronze.order_tbl AS order_tbl
+              columns_used:
+                - order_tbl.order_id
+      
+      - name: customer_count
+        business_name: Customer Count
+        description: >-
+          Total number of unique customers. Calculated as the count of distinct customer IDs.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(DISTINCT customer.customer_id) AS customer_count
+                FROM ecom_bronze.customer AS customer
+              columns_used:
+                - customer.customer_id
+      
+      - name: average_order_value
+        business_name: Average Order Value
+        description: >-
+          Average monetary value per order. Calculated as total revenue divided by order count.
+          This metric represents the typical order size.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT order_tbl.order_id) = 0 THEN 0
+                        ELSE SUM(order_tbl.total) / COUNT(DISTINCT order_tbl.order_id)
+                    END AS average_order_value
+                FROM ecom_bronze.order_tbl AS order_tbl
+              columns_used:
+                - order_tbl.total
+                - order_tbl.order_id
+      
+      - name: total_customer_lifetime_value
+        business_name: Total Customer Lifetime Value
+        description: >-
+          Total lifetime value across all customers. Calculated as the sum of customer total_spend.
+          This metric uses the pre-aggregated customer-level spend field and should not be joined to ORDER_TBL.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    SUM(customer.total_spend) AS total_customer_lifetime_value
+                FROM ecom_bronze.customer AS customer
+              columns_used:
+                - customer.total_spend
+      
+      - name: average_customer_lifetime_value
+        business_name: Average Customer Lifetime Value
+        description: >-
+          Average lifetime value per customer. Calculated as total customer lifetime value divided by customer count.
+          This metric represents the typical customer value.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT customer.customer_id) = 0 THEN 0
+                        ELSE SUM(customer.total_spend) / COUNT(DISTINCT customer.customer_id)
+                    END AS average_customer_lifetime_value
+                FROM ecom_bronze.customer AS customer
+              columns_used:
+                - customer.total_spend
+                - customer.customer_id
+      
+      - name: revenue_by_loyalty_tier
+        business_name: Revenue by Loyalty Tier
+        description: >-
+          Total revenue grouped by customer loyalty tier. Calculated by joining orders to customers
+          and aggregating order totals by loyalty tier. This metric shows revenue contribution by customer segment.
+        return_type: decimal
+        result_grain: one row per loyalty tier
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    customer.loyalty_tier,
+                    SUM(order_tbl.total) AS revenue_by_loyalty_tier
+                FROM ecom_bronze.order_tbl AS order_tbl
+                INNER JOIN ecom_bronze.customer AS customer
+                    ON order_tbl.customer_id = customer.customer_id
+                GROUP BY customer.loyalty_tier
+              columns_used:
+                - order_tbl.total
+                - order_tbl.customer_id
+                - customer.customer_id
+                - customer.loyalty_tier
+      
+      - name: revenue_by_order_status
+        business_name: Revenue by Order Status
+        description: >-
+          Total revenue grouped by order status. Calculated as the sum of order totals by status.
+          This metric shows revenue distribution across order fulfillment stages.
+        return_type: decimal
+        result_grain: one row per order status
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    order_tbl.status,
+                    SUM(order_tbl.total) AS revenue_by_order_status
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY order_tbl.status
+              columns_used:
+                - order_tbl.total
+                - order_tbl.status
+      
+      - name: revenue_by_payment_method
+        business_name: Revenue by Payment Method
+        description: >-
+          Total revenue grouped by payment method. Calculated as the sum of order totals by payment method.
+          This metric shows revenue distribution across payment channels.
+        return_type: decimal
+        result_grain: one row per payment method
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    order_tbl.payment_method,
+                    SUM(order_tbl.total) AS revenue_by_payment_method
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY order_tbl.payment_method
+              columns_used:
+                - order_tbl.total
+                - order_tbl.payment_method
+      
+      - name: orders_per_customer
+        business_name: Orders per Customer
+        description: >-
+          Average number of orders per customer. Calculated as total order count divided by customer count.
+          This metric represents customer purchase frequency.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    CASE
+                        WHEN COUNT(DISTINCT customer.customer_id) = 0 THEN 0
+                        ELSE COUNT(DISTINCT order_tbl.order_id)::DECIMAL / COUNT(DISTINCT customer.customer_id)
+                    END AS orders_per_customer
+                FROM ecom_bronze.order_tbl AS order_tbl
+                INNER JOIN ecom_bronze.customer AS customer
+                    ON order_tbl.customer_id = customer.customer_id
+              columns_used:
+                - order_tbl.order_id
+                - order_tbl.customer_id
+                - customer.customer_id
+      
+      - name: customer_count_by_loyalty_tier
+        business_name: Customer Count by Loyalty Tier
+        description: >-
+          Number of customers grouped by loyalty tier. Calculated as count of distinct customer IDs by loyalty tier.
+          This metric shows customer distribution across loyalty segments.
+        return_type: integer
+        result_grain: one row per loyalty tier
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    customer.loyalty_tier,
+                    COUNT(DISTINCT customer.customer_id) AS customer_count_by_loyalty_tier
+                FROM ecom_bronze.customer AS customer
+                GROUP BY customer.loyalty_tier
+              columns_used:
+                - customer.customer_id
+                - customer.loyalty_tier
+      
+      - name: order_count_by_status
+        business_name: Order Count by Status
+        description: >-
+          Number of orders grouped by order status. Calculated as count of distinct order IDs by status.
+          This metric shows order volume distribution across fulfillment stages.
+        return_type: integer
+        result_grain: one row per order status
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    order_tbl.status,
+                    COUNT(DISTINCT order_tbl.order_id) AS order_count_by_status
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY order_tbl.status
+              columns_used:
+                - order_tbl.order_id
+                - order_tbl.status
+      
+      - name: product_count
+        business_name: Product Count
+        description: >-
+          Total number of unique products in the catalog. Calculated as count of distinct product IDs.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(DISTINCT product.product_id) AS product_count
+                FROM ecom_bronze.product AS product
+              columns_used:
+                - product.product_id
+      
+      - name: product_count_by_category
+        business_name: Product Count by Category
+        description: >-
+          Number of products grouped by product category. Calculated as count of distinct product IDs by category.
+          This metric shows catalog distribution across product categories.
+        return_type: integer
+        result_grain: one row per product category
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    product.category,
+                    COUNT(DISTINCT product.product_id) AS product_count_by_category
+                FROM ecom_bronze.product AS product
+                GROUP BY product.category
+              columns_used:
+                - product.product_id
+                - product.category
+      
+      - name: average_product_price
+        business_name: Average Product Price
+        description: >-
+          Average unit price across all products. Calculated as the average of product prices.
+          This metric represents typical product pricing.
+        return_type: decimal
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    AVG(product.price) AS average_product_price
+                FROM ecom_bronze.product AS product
+              columns_used:
+                - product.price
+      
+      - name: organic_product_count
+        business_name: Organic Product Count
+        description: >-
+          Number of products certified as organic. Calculated as count of distinct product IDs where is_organic is true.
+        return_type: integer
+        result_grain: single value
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    COUNT(DISTINCT product.product_id) AS organic_product_count
+                FROM ecom_bronze.product AS product
+                WHERE product.is_organic = true
+              columns_used:
+                - product.product_id
+                - product.is_organic
+      
+      - name: monthly_revenue
+        business_name: Monthly Revenue
+        description: >-
+          Total revenue grouped by month. Calculated as sum of order totals grouped by month extracted from order timestamp.
+          This metric shows revenue trends over time at monthly grain.
+        return_type: decimal
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', order_tbl.timestamp) AS month,
+                    SUM(order_tbl.total) AS monthly_revenue
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY DATE_TRUNC('month', order_tbl.timestamp)
+                ORDER BY month
+              columns_used:
+                - order_tbl.timestamp
+                - order_tbl.total
+      
+      - name: monthly_order_count
+        business_name: Monthly Order Count
+        description: >-
+          Number of orders grouped by month. Calculated as count of distinct order IDs grouped by month extracted from order timestamp.
+          This metric shows order volume trends over time at monthly grain.
+        return_type: integer
+        result_grain: one row per month
+        expression:
+          dialects:
+            - dialect: POSTGRESQL
+              expression: |
+                SELECT
+                    DATE_TRUNC('month', order_tbl.timestamp) AS month,
+                    COUNT(DISTINCT order_tbl.order_id) AS monthly_order_count
+                FROM ecom_bronze.order_tbl AS order_tbl
+                GROUP BY DATE_TRUNC('month', order_tbl.timestamp)
+                ORDER BY month
+              columns_used:
+                - order_tbl.timestamp
+                - order_tbl.order_id
